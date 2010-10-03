@@ -61,14 +61,16 @@ func (s *Store) ReadFrom(r io.Reader) os.Error {
 var base36Char = []byte("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 func base36(n int64) string {
+	if n == 0 {
+		return string(base36Char[0])
+	}
 	s := make([]byte, 20)
-	i := len(s) - 1
-	s[i] = base36Char[0]
+	i := len(s)
 	for n > 0 && i >= 0 {
+		i--
 		j := n % 36
 		n = (n - j) / 36
 		s[i] = base36Char[j]
-		i--
 	}
 	return string(s[i:])
 }
