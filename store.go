@@ -28,7 +28,7 @@ func (s *Store) Set(target string) string {
 	defer s.mu.Unlock()
 	var key string
 	for {
-		key = base36(s.count)
+		key = genKey(s.count)
 		s.count++
 		if _, ok := s.urls[key]; !ok {
 			break
@@ -58,19 +58,20 @@ func (s *Store) ReadFrom(r io.Reader) os.Error {
 	return d.Decode(s)
 }
 
-var base36Char = []byte("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+var keyChar = []byte("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
-func base36(n int64) string {
+func genKey(n int64) string {
 	if n == 0 {
-		return string(base36Char[0])
+		return string(keyChar[0])
 	}
-	s := make([]byte, 20)
+	l := int64(len(keyChar))
+	s := make([]byte, 20) // FIXME: will overflow. eventually.
 	i := len(s)
 	for n > 0 && i >= 0 {
 		i--
-		j := n % 36
-		n = (n - j) / 36
-		s[i] = base36Char[j]
+		j := n % l
+		n = (n - j) / l
+		s[i] = keyChar[j]
 	}
 	return string(s[i:])
 }
