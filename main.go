@@ -64,12 +64,12 @@ func loadStore() {
 	defer storeLock.Unlock()
 	f, err := os.Open(*dataFile, os.O_RDONLY, 0644)
 	if err != nil {
-		log.Stderrf("error opening %q: %s", *dataFile, err)
+		log.Printf("error opening %q: %s", *dataFile, err)
 		return
 	}
 	defer f.Close()
 	if err := store.ReadFrom(f); err != nil {
-		log.Stderrf("error reading %q:", *dataFile, err)
+		log.Printf("error reading %q: %s", *dataFile, err)
 	}
 }
 
@@ -78,12 +78,12 @@ func saveStore() {
 	defer storeLock.Unlock()
 	f, err := os.Open(*dataFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
-		log.Stderrf("error opening %q: %s", *dataFile, err)
+		log.Printf("error opening %q: %s", *dataFile, err)
 		return
 	}
 	defer f.Close()
 	if err := store.WriteTo(f); err != nil {
-		log.Stderrf("error writing %q:", *dataFile, err)
+		log.Printf("error writing %q: %s", *dataFile, err)
 	}
 }
 
