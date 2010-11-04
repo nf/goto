@@ -12,35 +12,34 @@ import (
 
 const saveTimeout = 10e9
 
-
 type Store interface {
 	Put(url, key *string) os.Error
 	Get(key, url *string) os.Error
 }
 
 
-type PersistentStore struct {
-	mu          sync.Mutex
-	urls        *UrlMap
-	count       int64
-	filename    string
-	saveTrigger chan bool
+type URLStore struct {
+	mu       sync.Mutex
+	urls     *URLMap
+	count    int64
+	filename string
+	dirtied  chan bool
 }
 
-func NewPersistentStore(filename string) *PersistentStore {
-	s := &PersistentStore{
-		urls:        NewUrlMap(),
+func NewURLStore(filename string) *URLStore {
+	s := &URLStore{
+		urls:        NewURLMap(),
 		filename:    filename,
-		saveTrigger: make(chan bool, 100), // some headroom
+		saveTrigger: make(chan bool, 1000), // some headroom
 	}
 	if err := s.load(); err != nil {
-		log.Println("PersistentStore:", err)
+		log.Println("URLStore:", err)
 	}
 	go s.saveLoop()
 	return s
 }
 
-func (s *PersistentStore) Get(key, url *string) os.Error {
+func (s *URLStore) Get(key, url *string) os.Error {
 	if u, ok := s.urls.Get(*key); ok {
 		*url = u
 		return nil
@@ -48,7 +47,7 @@ func (s *PersistentStore) Get(key, url *string) os.Error {
 	return os.NewError("key not found")
 }
 
-func (s *PersistentStore) Put(url, key *string) os.Error {
+func (s *URLStore) Put(url, key *string) os.Error {
 	s.mu.Lock()
 	for {
 		*key = genKey(s.count)
@@ -59,11 +58,11 @@ func (s *PersistentStore) Put(url, key *string) os.Error {
 	}
 	s.mu.Unlock()
 	s.urls.Set(*key, *url)
-	s.saveTrigger <- true
+	s.dirtied <- true
 	return nil
 }
 
-func (s *PersistentStore) load() os.Error {
+func (s *URLStore) load() os.Error {
 	f, err := os.Open(s.filename, os.O_RDONLY, 0644)
 	if err != nil {
 		return err
@@ -72,30 +71,7 @@ func (s *PersistentStore) load() os.Error {
 	return s.urls.ReadFrom(f)
 }
 
-func (s *PersistentStore) saveLoop() {
-	saving := false
-	timeout := make(chan bool)
-	for {
-		select {
-		case <-s.saveTrigger:
-			if !saving {
-				go func() {
-					time.Sleep(saveTimeout)
-					timeout <- true
-				}()
-				saving = true
-			}
-		case <-timeout:
-			if err := s.save(); err != nil {
-				log.Println("PersistentStore:", err)
-			}
-			saving = false
-		}
-	}
-}
-
-func (s *PersistentStore) save() os.Error {
-	log.Println("Saving")
+func (s *URLStore) save() os.Error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f, err := os.Open(s.filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
@@ -106,9 +82,31 @@ func (s *PersistentStore) save() os.Error {
 	return s.urls.WriteTo(f)
 }
 
+func (s *URLStore) saveLoop() {
+	saving := false
+	timeout := make(chan bool)
+	for {
+		select {
+		case <-s.dirtied:
+			if !saving {
+				go func() {
+					time.Sleep(saveTimeout)
+					timeout <- true
+				}()
+				saving = true
+			}
+		case <-timeout:
+			if err := s.save(); err != nil {
+				log.Println("URLStore:", err)
+			}
+			saving = false
+		}
+	}
+}
+
 
 type ProxyStore struct {
-	urls   *UrlMap
+	urls   *URLMap
 	client *rpc.Client
 }
 
@@ -117,7 +115,7 @@ func NewProxyStore(addr string) *ProxyStore {
 	if err != nil {
 		log.Println("ProxyStore:", err)
 	}
-	return &ProxyStore{urls: NewUrlMap(), client: client}
+	return &ProxyStore{urls: NewURLMap(), client: client}
 }
 
 func (s *ProxyStore) Get(key, url *string) os.Error {
@@ -141,36 +139,36 @@ func (s *ProxyStore) Put(url, key *string) os.Error {
 }
 
 
-type UrlMap struct {
-	mu   sync.Mutex
+type URLMap struct {
+	mu   sync.RWMutex
 	urls map[string]string
 }
 
-func NewUrlMap() *UrlMap {
-	return &UrlMap{urls: make(map[string]string)}
+func NewURLMap() *URLMap {
+	return &URLMap{urls: make(map[string]string)}
 }
 
-func (m *UrlMap) Set(key, url string) {
+func (m *URLMap) Set(key, url string) {
 	m.mu.Lock()
 	m.urls[key] = url
 	m.mu.Unlock()
 }
 
-func (m *UrlMap) Get(key string) (string, bool) {
-	m.mu.Lock()
+func (m *URLMap) Get(key string) (string, bool) {
+	m.mu.RLock()
 	url, ok := m.urls[key]
-	m.mu.Unlock()
+	m.mu.RUnlock()
 	return url, ok
 }
 
-func (m *UrlMap) WriteTo(w io.Writer) os.Error {
+func (m *URLMap) WriteTo(w io.Writer) os.Error {
 	e := gob.NewEncoder(w)
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return e.Encode(m.urls)
 }
 
-func (m *UrlMap) ReadFrom(r io.Reader) os.Error {
+func (m *URLMap) ReadFrom(r io.Reader) os.Error {
 	d := gob.NewDecoder(r)
 	m.mu.Lock()
 	defer m.mu.Unlock()

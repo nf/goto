@@ -23,7 +23,7 @@ func main() {
 	if *masterAddr != "" {
 		store = NewProxyStore(*masterAddr)
 	} else {
-		store = NewPersistentStore(*dataFile)
+		store = NewURLStore(*dataFile)
 	}
 	if *rpcEnabled {
 		rpc.RegisterName("Store", store)
@@ -43,10 +43,6 @@ func Redirect(w http.ResponseWriter, r *http.Request) {
 	var url string
 	if err := store.Get(&key, &url); err != nil {
 		http.Error(w, err.String(), http.StatusInternalServerError)
-		return
-	}
-	if url == "" {
-		http.NotFound(w, r)
 		return
 	}
 	http.Redirect(w, r, url, http.StatusFound)
