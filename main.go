@@ -26,7 +26,7 @@ func main() {
 		store = NewPersistentStore(*dataFile)
 	}
 	if *rpcEnabled {
-		rpc.Register(store)
+		rpc.RegisterName("Store", store)
 		rpc.HandleHTTP()
 	}
 	http.HandleFunc("/", Redirect)

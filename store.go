@@ -92,7 +92,7 @@ func (s *ProxyStore) Get(key, url *string) os.Error {
 		*url = u
 		return nil
 	}
-	err := s.client.Call("PersistentStore.Get", key, url)
+	err := s.client.Call("Store.Get", key, url)
 	if err == nil {
 		s.cache.Set(*key, *url)
 	}
@@ -100,7 +100,7 @@ func (s *ProxyStore) Get(key, url *string) os.Error {
 }
 
 func (s *ProxyStore) Put(url, key *string) os.Error {
-	err := s.client.Call("PersistentStore.Put", url, key)
+	err := s.client.Call("Store.Put", url, key)
 	if err == nil {
 		s.cache.Set(*key, *url)
 	}
