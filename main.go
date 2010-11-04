@@ -4,7 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"http"
-	"sync"
+	"rpc"
 )
 
 var (
@@ -12,47 +12,50 @@ var (
 	dataFile   = flag.String("file", "store.gob", "data store file name")
 	hostname   = flag.String("host", "r.nf.id.au", "http host name")
 	password   = flag.String("pass", "", "password")
+	masterAddr = flag.String("master", "", "RPC master address")
+	rpcEnabled = flag.Bool("rpc", false, "act as RPC master server")
 )
+
+var store Store
 
 func main() {
 	flag.Parse()
-	store = NewPersistentStore(*dataFile)
+	if *masterAddr != "" {
+		store = NewProxyStore(*masterAddr)
+	} else {
+		store = NewPersistentStore(*dataFile)
+	}
+	if *rpcEnabled {
+		rpc.Register(store)
+		rpc.HandleHTTP()
+	}
 	http.HandleFunc("/", Redirect)
 	http.HandleFunc("/add", Add)
 	http.ListenAndServe(*listenAddr, nil)
 }
 
-var (
-	store     Store
-	storeLock sync.Mutex
-)
-
 func Redirect(w http.ResponseWriter, r *http.Request) {
 	key := r.URL.Path[1:]
-	target, err := store.Get(key)
-	if err != nil {
+	var url string
+	if err := store.Get(&key, &url); err != nil {
 		http.Error(w, err.String(), http.StatusInternalServerError)
 		return
 	}
-	if target == "" {
+	if url == "" {
 		http.NotFound(w, r)
 		return
 	}
-	http.Redirect(w, r, target, http.StatusFound)
+	http.Redirect(w, r, url, http.StatusFound)
 }
 
 func Add(w http.ResponseWriter, r *http.Request) {
-	target := r.FormValue("target")
-	if target == "" {
+	url := r.FormValue("url")
+	if url == "" {
 		fmt.Fprint(w, addform)
 		return
 	}
-	if r.FormValue("pw") != *password {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
-	key, err := store.Put(target)
-	if err != nil { 
+	var key string
+	if err := store.Put(&url, &key); err != nil { 
 		http.Error(w, err.String(), http.StatusInternalServerError)
 		return
 	}
@@ -61,8 +64,7 @@ func Add(w http.ResponseWriter, r *http.Request) {
 
 const addform = `
 <form method="POST" action="/add">
-<input type="password" name="pw" length="10">
-<input type="text" name="target">
+URL: <input type="text" name="url">
 <input type="submit" value="Add">
 </form>
 `

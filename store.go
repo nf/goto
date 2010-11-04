@@ -11,8 +11,8 @@ import (
 
 
 type Store interface {
-	Put(key string) (string, os.Error)
-	Get(key string) (string, os.Error)
+	Put(url, key *string) os.Error
+	Get(key, url *string) os.Error
 }
 
 
@@ -31,25 +31,23 @@ func NewPersistentStore(filename string) *PersistentStore {
 	return s
 }
 
-func (s *PersistentStore) Get(key string) (string, os.Error) {
-	url, _ := s.urls.Get(key)
-	return url, nil
+func (s *PersistentStore) Get(key, url *string) os.Error {
+	*url, _ = s.urls.Get(*key)
+	return nil
 }
 
-func (s *PersistentStore) Put(url string) (string, os.Error) {
-	var key string
+func (s *PersistentStore) Put(url, key *string) os.Error {
 	s.Lock()
 	for {
-		key = genKey(s.count)
+		*key = genKey(s.count)
 		s.count++
-		if _, ok := s.urls.Get(key); !ok {
+		if _, ok := s.urls.Get(*key); !ok {
 			break
 		}
 	}
 	s.Unlock()
-	s.urls.Set(key, url)
-	err := s.save()
-	return key, err
+	s.urls.Set(*key, *url)
+	return s.save()
 }
 
 func (s *PersistentStore) load() os.Error {
@@ -82,30 +80,31 @@ type ProxyStore struct {
 }
 
 func NewProxyStore(addr string) *ProxyStore {
-	p := &ProxyStore{cache: NewUrlMap()}
-	// TODO: create client connection
-	return p
+	client, err := rpc.DialHTTP("tcp", addr)
+	if err != nil {
+		log.Println("ProxyStore:", err)
+	}
+	return &ProxyStore{cache: NewUrlMap(), client: client}
 }
 
-func (s *ProxyStore) Get(key string) (string, os.Error) {
-	if url, ok := s.cache.Get(key); ok {
-		return url, nil
+func (s *ProxyStore) Get(key, url *string) os.Error {
+	if u, ok := s.cache.Get(*key); ok {
+		*url = u
+		return nil
 	}
-	var url string
-	err := s.client.Call("Store.Get", &key, &url)
+	err := s.client.Call("Store.Get", key, url)
 	if err == nil {
-		s.cache.Set(key, url)
+		s.cache.Set(*key, *url)
 	}
-	return url, err
+	return err
 }
 
-func (s *ProxyStore) Put(key string) (string, os.Error) {
-	var url string
-	err := s.client.Call("Store.Put", &key, &url)
+func (s *ProxyStore) Put(url, key *string) os.Error {
+	err := s.client.Call("Store.Put", url, key)
 	if err == nil {
-		s.cache.Set(key, url)
+		s.cache.Set(*key, *url)
 	}
-	return url, err
+	return err
 }
 
 
@@ -126,8 +125,8 @@ func (m *UrlMap) Set(key, url string) {
 
 func (m *UrlMap) Get(key string) (string, bool) {
 	m.Lock()
-	defer m.Unlock()
 	url, ok := m.urls[key]
+	m.Unlock()
 	return url, ok
 }
 
@@ -143,23 +142,4 @@ func (m *UrlMap) ReadFrom(r io.Reader) os.Error {
 	m.Lock()
 	defer m.Unlock()
 	return d.Decode(&m.urls)
-}
-
-
-var keyChar = []byte("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-
-func genKey(n int64) string {
-	if n == 0 {
-		return string(keyChar[0])
-	}
-	l := int64(len(keyChar))
-	s := make([]byte, 20) // FIXME: will overflow. eventually.
-	i := len(s)
-	for n > 0 && i >= 0 {
-		i--
-		j := n % l
-		n = (n - j) / l
-		s[i] = keyChar[j]
-	}
-	return string(s[i:])
 }
