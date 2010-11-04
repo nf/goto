@@ -32,8 +32,11 @@ func NewPersistentStore(filename string) *PersistentStore {
 }
 
 func (s *PersistentStore) Get(key, url *string) os.Error {
-	*url, _ = s.urls.Get(*key)
-	return nil
+	if u, ok := s.urls.Get(*key); ok {
+		*url = u
+		return nil
+	}
+	return os.NewError("key not found")
 }
 
 func (s *PersistentStore) Put(url, key *string) os.Error {
