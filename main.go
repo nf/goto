@@ -36,6 +36,10 @@ func main() {
 
 func Redirect(w http.ResponseWriter, r *http.Request) {
 	key := r.URL.Path[1:]
+	if key == "favicon.ico" || key == "" {
+		http.NotFound(w, r)
+		return
+	}
 	var url string
 	if err := store.Get(&key, &url); err != nil {
 		http.Error(w, err.String(), http.StatusInternalServerError)
