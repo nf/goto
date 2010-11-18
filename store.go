@@ -23,14 +23,14 @@ type URLStore struct {
 	urls     *URLMap
 	count    int64
 	filename string
-	dirtied  chan bool
+	dirty    chan bool
 }
 
 func NewURLStore(filename string) *URLStore {
 	s := &URLStore{
-		urls:        NewURLMap(),
-		filename:    filename,
-		saveTrigger: make(chan bool, 1000), // some headroom
+		urls:     NewURLMap(),
+		filename: filename,
+		dirty:    make(chan bool, 1),
 	}
 	if err := s.load(); err != nil {
 		log.Println("URLStore:", err)
@@ -58,7 +58,7 @@ func (s *URLStore) Put(url, key *string) os.Error {
 	}
 	s.mu.Unlock()
 	s.urls.Set(*key, *url)
-	s.dirtied <- true
+	_ = s.dirty <- true
 	return nil
 }
 
@@ -83,23 +83,13 @@ func (s *URLStore) save() os.Error {
 }
 
 func (s *URLStore) saveLoop() {
-	saving := false
-	timeout := make(chan bool)
 	for {
-		select {
-		case <-s.dirtied:
-			if !saving {
-				go func() {
-					time.Sleep(saveTimeout)
-					timeout <- true
-				}()
-				saving = true
-			}
-		case <-timeout:
-			if err := s.save(); err != nil {
-				log.Println("URLStore:", err)
-			}
-			saving = false
+		time.Sleep(saveTimeout)
+		if _, ok := <-s.dirty; !ok {
+			continue
+		}
+		if err := s.save(); err != nil {
+			log.Println("URLStore:", err)
 		}
 	}
 }
