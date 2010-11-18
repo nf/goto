@@ -11,7 +11,6 @@ var (
 	listenAddr = flag.String("http", ":9980", "http listen address")
 	dataFile   = flag.String("file", "store.gob", "data store file name")
 	hostname   = flag.String("host", "r.nf.id.au", "http host name")
-	password   = flag.String("pass", "", "password")
 	masterAddr = flag.String("master", "", "RPC master address")
 	rpcEnabled = flag.Bool("rpc", false, "act as RPC master server")
 )
