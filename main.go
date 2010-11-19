@@ -12,7 +12,7 @@ var (
 	dataFile   = flag.String("file", "store.gob", "data store file name")
 	hostname   = flag.String("host", "r.nf.id.au", "http host name")
 	masterAddr = flag.String("master", "", "RPC master address")
-	rpcEnabled = flag.Bool("rpc", false, "act as RPC master server")
+	rpcEnabled = flag.Bool("rpc", false, "enable RPC server")
 )
 
 var store Store
@@ -54,7 +54,7 @@ func Add(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var key string
-	if err := store.Put(&url, &key); err != nil { 
+	if err := store.Put(&url, &key); err != nil {
 		http.Error(w, err.String(), http.StatusInternalServerError)
 		return
 	}
