@@ -1,8 +1,3 @@
 Goto - A URL shortening service
 
-Usage of ./goto:
-  -file="store.gob": data store file name
-  -http=":9980": http listen address
-  -host="r.nf.id.au": http host name
-  -pass="": password
-
+This code is the basis of the presentation 'Practical Go Programming'.
