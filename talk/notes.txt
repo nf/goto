@@ -1,0 +1,156 @@
+
+- Let's build a URL shortener.
+  - Users put a URL in a form, get a shortened URL in return
+
+- Start with the data; create a data type to store our key->url map
+  - ASIDE: the map type, make
+  - type URLMap map[string]string
+  - add Get and Set methods
+  - but what about concurrent access? this isn't thread safe
+  - make it a struct with RWMutex, add lock/unlock to methods
+  - add constructor functon, NewURLMap
+
+- We need an interface to Put URLs in exchange for a generated key,
+  and Get URLs by key.
+  - type URLStore struct { urls *URLMap }
+  - NewURLStore function creates and returns a URLStore
+  - Put method generates the key
+    - show (but don't explain) keyGen function in key.go
+      (maybe drop this and just use numeric keys)
+    - add 'count int' to struct
+    - this isn't thread safe! two clients could get the same key
+      - add a mutex to URLStore
+  - Get method is trivial
+
+- The web interface:
+  - main function
+    - http Handle and Listen
+  - demo http server that does nothing (404)
+  - global variable store = NewURLStore()
+  - Add function
+    - HTML form constant
+    - pull url from r.FormValue
+    - key = store.Put(url)
+    - output new url
+    - main: Handle("/add", Add)
+  - demo visiting /add a couple of times, watch keys increment
+    (get suggestions of urls to add from crowd)
+  - Redirect function
+    - key = r.URL.Path[1:]
+    - url = store.Get(key)
+    - if not found, http.NotFound
+    - http.Redirect(w, r, url, http.StatusFound)
+  - demo redirects /0, /1, etc
+  - this is using Go's concurrency features "behind the scenes" - more later
+
+- Let's remove some 'magic numbers' from the code:
+  - command-line flags
+    - ASIDE: the flag package
+    - listenAddr, hostname, filename
+    - replace constants
+    - flag.Parse in main
+ - demo working command lines
+
+- Oh no! The process ended and we lost all our data! We need persistent storage.
+  - ASIDE: interfaces:
+    - os.Error interface
+    - Reader and Writer interfaces
+  - implement WriteTo on URLMap
+    - ASIDE: gob
+    - create encoder
+    - take a read lock
+    - encode to writer
+    - release lock
+    - return error
+    - this is more verbose than it need be:
+      - ASIDE: defer
+      - defer releasing the lock, save a line
+  - implement ReadFrom
+    - decoder
+    - take write lock, deferring unlock
+    - decode from reader
+  - add filename to URLStore struct and NewURLStore args
+  - save method on URLStore
+    - open the file for writing (explain flags)
+    - handle errors
+    - defer Close
+    - WriteTo f
+  - load method
+    - open file for reading
+    - handle errors
+    - defer Close
+    - ReadFrom f
+  - add load to NewURLStore
+  - add save to Put
+    - thread-safety again! add Lock/Unlock to save method
+  - demo our file store now works:
+    - launch app, add some urls, kill app, reload, urls still there
+
+- Another issue: When many clients try to add URLs in quick succession and the
+  URL list is saved to disk after each addition, each client will need to wait
+  for the list to be saved before their request will go through.
+  - It would be better to save the list periodically.
+  - So far, we've used Go's concurrency features "behind the scenes", but
+    now we want to explicity create another thread that periodically saves the
+    list.
+  - ASIDE: goroutines
+  - create saveLoop
+    - time.Sleep
+    - s.save()
+    - put log.Println("Saving") for explanatory purposes
+  - add "go s.saveLoop()" to NewURLStore
+  - remove s.save() from Put
+  - demo the periodical saving
+  - but this will rewrite the file regardless of whether it's been updated.
+    we need to signal the saveLoop goroutine when it should save the file
+  - ASIDE: channels
+  - add 'dirty chan bool' to struct
+  - add '<-s.dirty' to saveLoop
+  - add make(chan bool, 1) to NewURLStore
+  - add '_ = s.dirty <- true' to save
+  - demo periodical saving only after url add
+
+- So far we have a program that runs as a single process. But a single process
+  running on one machine can only serve so many simultaenous requests.
+  - A URL Shortener typically serves many more Redirects (reads) than it does 
+    Adds (writes). 
+  - We can create an arbitrary number of read-only slaves that cache and
+    serve Get requests, and pass Puts through to the master.
+  - ASIDE: rpc
+    - a simple means of communicating between Go programs over a network,
+    - trivial rpc example
+  - master:
+    - Let's make the URLStore into an rpc service by changing the Get and Put
+      methods slightly. 
+      - Get has slightly different logic, now returns an error if not found
+      - Put is trivially modified
+      - The call sites become slightly more complicated:
+        - Redirect must pre-declare "var url string"
+        - Add must provide "var key string"
+        - both must check the error value, and report it to the client
+          (this will become very useful shortly)
+    - add 'rpc' flag to enable rpc server
+    - if rpc = true, register the URLStore with the rpc package in main()
+      - rpc.RegisterName("Store", store)
+        (we override the name for reasons we'll see shortly)
+      - rpc.HandleHTTP() to enable RPC-over-HTTP
+  - demo the methods registered at /debug/rpc
+  - slave:
+    - create ProxyStore struct, with *rpc.Client inside
+    - NewProxyStore takes addr, connects, and returns *ProxyStore
+    - Get makes s.client.Call("Store.Get"...)
+    - Put makes s.client.Call("Store.Put"...)
+    - we want to be able to use this new store interchangably with the URLStore
+      this is a job for interfaces!
+      - create Store interface type
+    - global variable store becomes "var store Store"
+    - add 'master' command-line flag
+    - main() to instantiate ProxyStore or URLStore depending if master is set
+  - demo working proxy, two processes communicating with each other
+  - one last thing: caching on the slave side
+    - add *URLMap to ProxyStore struct
+    - initialize it in NewProxyStore
+    - add calls to urls.Get/Set to Get and Put
+  - demo stress test of 3 slaves, 1 master
+    - little instrumentation module
+
