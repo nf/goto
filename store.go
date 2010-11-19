@@ -56,8 +56,8 @@ func (s *URLStore) Put(url, key *string) os.Error {
 			break
 		}
 	}
-	s.mu.Unlock()
 	s.urls.Set(*key, *url)
+	s.mu.Unlock()
 	_ = s.dirty <- true
 	return nil
 }
@@ -84,13 +84,11 @@ func (s *URLStore) save() os.Error {
 
 func (s *URLStore) saveLoop() {
 	for {
-		time.Sleep(saveTimeout)
-		if _, ok := <-s.dirty; !ok {
-			continue
-		}
+		<-s.dirty
 		if err := s.save(); err != nil {
 			log.Println("URLStore:", err)
 		}
+		time.Sleep(saveTimeout)
 	}
 }
 
