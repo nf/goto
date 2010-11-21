@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Practical Go Programming</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="font-size-adjustment" content="-1" />
+<link rel="stylesheet" href="slidy.css"
+ type="text/css" media="screen, projection, print" />
+<script src="slidy.js" type="text/javascript"></script>
+</head>
+<body>
+
+<div class="slide titlepage">
+<h1>Practical Go Programming</h1>
+<p>Andrew Gerrand</p>
+<p><img src="bumper640x360.png"></p>
+</ul>
+</div>
+
+<div class="slide">
+<h1>What is Go?</h1>
+<img src="gopher.png" style="float: right;">
+<p>A general-purpose programming language.</p>
+<p>It is:</p>
+<ul class="contrasts">
+<li>New <em>exciting</em></li>
+<li>Small <em>beautiful</em></li>
+<li>Simple <em>easy</em></li>
+<li>Fast <em>powerful</em></li>
+<li>Fun <em>wheee!</em></li>
+</ul>
+</div>
+
+<div class="slide">
+<h1>Go's killer features</h1>
+<ul class="contrasts">
+<li>Emphasis on simplicity; <em>easy to learn</em></li>
+<li>Memory managed and syntactically lightweight; <em>easy to use</em></li>
+<li>Fast compiled code; <em>comparable to C</em></li>
+<li>Concurrency support; <em>write simpler code</em></li>
+<li>Static typing</li>
+<li>Consistent standard library</li>
+<li>Self-documenting (and well-documented)</li>
+</ul>
+</div>
+
+
+<div class="slide">
+<h1>Let's write a Go program</h1>
+<h3>goto: A URL Shortener</h3>
+<p>Goto provides a web service (HTTP) that does two things:</p>
+<ul>
+<li>When provided with a long URL, goto returns a short version:
+	<p class="eg">
+		http://maps.google.com/maps?f=q&source=s_q&hl=en&geocode=&q=tokyo&sll=37.0625,-95.677068&sspn=68.684234,65.566406&ie=UTF8&hq=&hnear=Tokyo,+Japan&t=h&z=9<br><br>
+		http://goo.gl/UrcGq
+	</p>
+<li>When a shortened URL is requested, it redirects the user to the original, long URL.
+</ul>
+</div>
+
+<div class="slide">
+<h1>Data structures</h1>
+<p>Goto maps short URLs to long URLs.</p>
+<p>To represent this mapping in memory we can use a hash table.</p>
+<p>Go's built-in <code>map</code> type allows you to map values of any* type
+   to values of any type.</p>
+<pre>
+m := make(map[int]string)
+m[1] = "One"
+
+u := m[1]
+// u == "One"
+
+v, present := m[2]
+// v == "", present == false
+</pre>
+<p>(*There are some restrictions on which types can be used as keys.)
+</div>
+
+<div class="slide">
+<h1>Data structures</h1>
+<p>Goto's fundamental data type:</p>
+<pre>
+type URLMap map[string]string
+
+m := make(URLMap)
+</pre>
+<p>The data structure <code>m</code> can now be used to map <code>http://goto/a</code> to <code>http://google.com/</code>:</p>
+<pre>
+m["a"] = "http://google.com/"
+
+url := m["a"]
+// url == "http://google.com/"
+</pre>
+<p>
+This has a shortcoming: Go's <code>map</code> type is not thread-safe. 
+</p>
+<p>
+Goto will serve many requests concurrently, so we must make our 
+<code>URLMap</code> type safe to access from separate threads.
+</p>
+</div>
+
+<div class="slide">
+<h1>Adding a lock</h1>
+<p>
+To protect the <code>map</code> type from being modified while it is being
+read we must add a lock to the data structure.
+</p>
+<p>
+Changing the type definition, we make <code>URLMap</code> a <code>struct</code>
+type with two fields: the <code>map</code> and a <code>RWMutex</code> from
+the <code>sync</code> package.
+</p>
+<pre>
+import "sync"
+
+type URLMap struct {
+	urls map[string]string
+	mu sync.RWMutex
+}
+</pre>
+<p>
+An <code>RWMutex</code> has two locks: one for readers, and one for writers.
+Many clients can take the read lock simultaneously, but only one client can
+take the write lock (to the exclusion of all readers).
+</p>
+</div>
+
+<div class="slide">
+<h1>Setter and Getter methods</h1>
+<p>
+The <code>Set</code> method takes the write lock, and updates the url map:
+</p>
+<pre>
+func (m *URLMap) Set(key, url string) {
+	m.mu.Lock()
+	m.urls[key] = url
+	m.mu.Unlock()
+}       
+</pre>
+<p>
+The <code>Get</code> method takes the read lock with <code>RLock</code>, and
+returns two values: the URL as a string, and a boolean value that is true if the
+key is present in the map.
+</p>
+<pre>
+func (m *URLMap) Get(key string) (string, bool) {
+	m.mu.RLock()
+	url, ok := m.urls[key]
+	m.mu.RUnlock()
+        return url, ok
+}
+</pre>
+</div>
+
+<div class="slide">
+<h1>An initializer function</h1>
+<p>
+The <code>URLMap</code> struct contains a <code>map</code> type, which must be
+initialized with <code>make</code> before it can be used.
+<pre>
+type URLMap struct {
+	urls map[string]string
+	mu sync.RWMutex
+}
+</pre>
+<p>
+Go doesn't have constructors. Instead, the convention is to write a function
+named <code>NewXXX</code> that returns an intialized instance of the type.
+</p>
+<pre>
+func NewURLMap() *URLMap {
+	return &URLMap{urls: make(map[string]string)}
+}
+</pre>
+</div>
+
+<div class="slide">
+<h1>Using URLMap</h1>
+<p>
+Creating an instance:
+</p>
+<pre>
+m := NewURLMap()
+</pre>
+<p>Setting a URL by key:</p>
+<pre>
+m.Set("a", "http://google.com")
+</pre>
+<p>Getting a URL by key:</p>
+<pre>
+if url, ok := m.Get("a"); ok {
+	// redirect to url
+} else {
+	// key not found
+}
+</pre>
+</div>
+
+</body>
+</html>
+ 
