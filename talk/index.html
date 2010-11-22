@@ -72,10 +72,10 @@ m := make(map[int]string)
 m[1] = "One"
 
 u := m[1]
-// u == "One"
+<span>// u == "One"</span>
 
 v, present := m[2]
-// v == "", present == false
+<span>// v == "", present == false</span>
 </pre>
 <p>(*There are some restrictions on which types can be used as map keys.)
 </div>
@@ -93,7 +93,7 @@ m := make(URLMap)
 m["a"] = "http://google.com/"
 
 url := m["a"]
-// url == "http://google.com/"
+<span>// url == "http://google.com/"</span>
 </pre>
 <p>
 This has a shortcoming: Go's <code>map</code> type is not thread-safe. 
@@ -736,6 +736,268 @@ var store = NewURLStore(<em>"store.gob"</em>)
 <p>See the code we've written so far:</p>
 <ul>
 <li><a href="https://github.com/nf/goto/tree/master/talk/code/1/">https://github.com/nf/goto/tree/master/talk/code/1/</a></li>
+</ul>
+</div>
+
+<div class="slide">
+<h1>A point of contention</h1>
+<p>
+Consider this pathalogical situation:
+</p>
+<ul>
+<li>Many clients attempt to add URLs simultaneously.
+<li>Each client must obtain the <code>URLStore</code> lock to perform a <code>Put</code>.
+<li>The <code>URLMap</code> is written to disk during each <code>Put</code>
+    (while the lock is held).
+<li>Therefore, the <i>n</i>th client must wait for the <code>URLMap</code>
+    to be written to disk <i>n</i>-1 times before its <code>Put</code> can 
+    complete.
+</ul>
+<p>
+To improve this situation we should decouple the <code>save</code> process 
+from the <code>Put</code> process, and only <code>save</code> the 
+<code>URLMap</code> periodically.
+</p>
+</div>
+
+<div class="slide">
+<h1>Goroutines: an aside</h1>
+<p>A <i>goroutine</i> is a lightweight thread managed by the Go runtime.</p>
+<p>Goroutines are launched by a <code>go</code> statement. This code executes
+both <code>foo</code> and <code>bar</code> concurrently:</p>
+<pre>
+go foo()
+bar()
+</pre>
+<p>
+The <code>bar</code> function runs in the current goroutine, while 
+<code>foo</code> runs in a newly created goroutine.
+</p>
+<p>
+Memory is shared between goroutines, like many popular threading models.
+</p>
+<p>
+Goroutines are cheaper to create than operating system threads,
+and goroutines are typically multiplexed across fewer OS threads.
+</p>
+</div>
+
+<div class="slide">
+<h1>Saving on the side</h1>
+<p>
+Let's create a function that will run in its own goroutine, periodically saving
+the data store.
+</p>
+<pre>
+const saveTimeout = 10e9 // 10 seconds
+
+func (s *URLStore) saveLoop() {
+	for {
+		time.Sleep(saveTimeout)
+		s.save()
+	}
+}
+</pre>
+</div>
+
+<div class="slide">
+<h1>Saving on the side</h1>
+<p>
+We then need to launch the goroutine from <code>NewURLStore</code>:
+</p>
+<pre>
+func NewURLStore(filename string) *URLStore {
+	s := &URLStore{
+		urls:     NewURLMap(),
+		filename: filename,
+	}
+	s.load()
+<em>	go s.saveLoop()</em>
+	return s
+}
+</pre>
+<p class="eg">
+(And we shouldn't forget to remove the call to <code>save</code> from the
+<code>Put</code> method.)
+</p>
+<div class="incremental">
+<p>
+But there's a problem with this approach: <code>save</code> will be called 
+regardless of whether the data store has been modified. This causes a lot of
+needless disk churn, and may become problematic as the data set grows.
+</p>
+<p>
+We need to send a signal to the <code>saveLoop</code> to tell it when
+the data needs to be saved.
+</p>
+</div>
+</div>
+
+<div class="slide">
+<h1>Channels: an aside</h1>
+<p>
+A <i>channel</i> is a conduit, like a unix pipe, through which you can send
+typed values. They provide many interesting algorithmic possibilities.
+</p>
+<p>
+Channels underpin the Go philosophy to concurrent programming:
+</p>
+<p><i>
+Do not communicate by sharing memory; instead, share memory by communicating.
+</i></p>
+<p>
+Like map types, channels must be initialized with <code>make</code>:
+</p>
+<pre>
+ch := make(chan int) // a channel of ints
+</pre>
+<p>
+Communication is expressed using the "channel operator", <code>&lt;-</code> :
+<p>
+<pre>
+ch &lt;- 7   // sending the int 7 to the channel
+
+i := &lt;-ch // receiving an int from the channel
+</pre>
+</div>
+
+<div class="slide">
+<h1>Channels: an aside</h1>
+<p>
+In this example, the main goroutine will block until the receive from
+<code>ch</code> is ready.
+</p>
+<pre>
+func foo(ch chan int) {
+	<span>// some computation resulting in i</span>
+	ch &lt;- i
+}
+
+func main() {
+	ch := make(chan int)
+	go foo(ch)
+	i := &lt;-ch
+}
+</pre>
+<p>
+That's because this channel is unbuffered. For an unbuffered
+send/receive to occur, both the sending and receiving sides must be ready.
+This property can be exploited to provide a powerful synchronization mechanism.
+</p>
+</div>
+
+<div class="slide">
+<h1>Channels: an aside</h1>
+<p>
+Buffered channels are initialized by specifying the buffer size as the 
+second argument to <code>make</code>. Sends to a buffered channel will not
+block until the buffer is full.
+</p>
+<pre>
+ch := make(chan int, 10)
+</pre>
+<p>
+Non-blocking sends are performed by treating the send statement as
+an expression:
+</p>
+<pre>
+ok := ch <- 1
+<span>// ok == true if the send occurred</span>
+</pre>
+<p>
+Similarly, you can perform non-blocking reads by assigingn the second return
+value of the read:
+</p>
+<pre>
+i, ok := <-ch
+<span>// ok == true if a receive occurred</span>
+</pre>
+<p class="eg">
+See the blog posts "<a href="http://blog.golang.org/2010/07/share-memory-by-communicating.html">Share Memory by Communicating</a>" and "<a href="http://blog.golang.org/2010/09/go-concurrency-patterns-timing-out-and.html">Timing out, moving on</a>" for a detailed discussion of goroutines and channels.
+</p>
+</div>
+
+<div class="slide">
+<h1>Saving on demand</h1>
+<p>
+We can use a channel of boolean values to tell <code>saveLoop</code> when
+the data structure is "dirty", and a <code>save</code> is required.
+</p>
+<pre>
+type URLStore struct {
+	mu       sync.Mutex
+	urls     *URLMap
+	count    int
+	filename string
+<em>	dirty    chan bool</em>
+}
+</pre>
+</div>
+
+<div class="slide">
+<h1>Saving on demand</h1>
+<p>
+Now we make <code>saveLoop</code> wait until a value is received from
+<code>dirty</code> before saving.
+<pre>
+func (s *URLStore) saveLoop() {
+	for {
+<em>		<-s.dirty</em>
+		s.save()
+		time.Sleep(saveTimeout)
+	}
+}
+</pre>
+</div>
+
+<div class="slide">
+<h1>Saving on demand</h1>
+<p>
+We make <code>dirty</code> a buffered channel with space for just one value,
+so that if a send occurs while <code>saveLoop</code> is busy 
+(either saving or sleeping) the value will still be received when 
+<code>saveLoop</code> becomes ready.
+</p>
+<pre>
+func NewURLStore(filename string) *URLStore {
+	s := &URLStore{
+		urls:     NewURLMap(),
+		filename: filename,
+<em>		dirty:    make(chan bool, 1),</em>
+	}
+	s.load()
+	go s.saveLoop()
+	return s
+}
+</pre>
+</div>
+
+<div class="slide">
+<h1>Saving on demand</h1>
+<p>
+Finally, we add a non-blocking send to the <code>Put</code> method:
+</p>
+<pre>
+func (s *URLStore) Put(url string) (key string) {
+<span>	... (generate key)</span>
+        s.urls.Set(key, url)
+	s.mu.Unlock()
+<em>	_ = s.dirty <- true</em>
+	return
+}
+</pre>
+<p>
+The underscore in the expression means "nil assignment"; the value will be 
+thrown away. This is because we don't care whether the message is received
+or not.
+</p>
+</div>
+
+<div class="slide">
+<h1>Demonstration</h1>
+<p>See the code we've written so far:</p>
+<ul>
+<li><a href="https://github.com/nf/goto/tree/master/talk/code/2/">https://github.com/nf/goto/tree/master/talk/code/2/</a></li>
 </ul>
 </div>
 
