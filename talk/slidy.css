@@ -134,6 +134,10 @@ pre, code {
  color: #00428C;
  font-weight: bold;
 }
+pre em {
+ color: #8C4200;
+ font-style: normal;
+}
 
 li pre { margin-left: 0; }
 
@@ -221,7 +225,7 @@ ul ul ul ul { list-style-type: disc; }
 
 ul li { 
   list-style: square;
-  margin: 0.1em 0em 0.6em 0;
+  margin: 0.1em 0em 0.6em 1.0em;
   padding: 0 0 0 0;
   line-height: 140%;
 }

@@ -21,7 +21,7 @@
 <h1>What is Go?</h1>
 <img src="gopher.png" style="float: right;">
 <p>A general-purpose programming language.</p>
-<p>It is:</p>
+<p>Go is:</p>
 <ul class="contrasts">
 <li>New <em>exciting</em></li>
 <li>Small <em>beautiful</em></li>
@@ -118,7 +118,7 @@ import "sync"
 
 type URLMap struct {
 	urls map[string]string
-	mu sync.RWMutex
+	mu   sync.RWMutex
 }
 </pre>
 <p>
@@ -163,7 +163,7 @@ initialized with <code>make</code> before it can be used.
 <pre>
 type URLMap struct {
 	urls map[string]string
-	mu sync.RWMutex
+	mu   sync.RWMutex
 }
 </pre>
 <p>
@@ -198,6 +198,259 @@ if url, ok := m.Get("a"); ok {
 }
 </pre>
 </div>
+
+<div class="slide">
+<h1>The URLStore</h1>
+<p>
+Let's create an object to manage the basic functionality of our service.
+</p>
+<pre>
+type URLStore struct{}
+</pre>
+<p>
+The <code>URLStore</code> has two methods:
+</p>
+<ul>
+<li><code>Put</code> takes a URL, and generates and returns the 
+associated short URL id.
+<pre>
+func (s *URLStore) Put(url string) (key string)
+</pre>
+<li><code>Get</code> takes a short URL id, and returns the associated URL.
+<pre>
+func (s *URLStore) Get(key string) (url string)
+</pre>
+</ul>
+</div>
+
+<div class="slide">
+<h1>URLStore.Put</h1>
+<pre>
+type URLStore struct {
+	urls  *URLMap
+	count int
+}
+
+func (s *URLStore) Put(url string) (key string) {
+        for {
+                key = genKey(s.count)
+                s.count++
+                if _, ok := s.urls.Get(key); !ok {
+                        break
+                }
+        }
+        s.urls.Set(key, url)
+	return
+}
+</pre>
+<p>
+The <code>genKey</code> function takes an integer and returns a corresponding
+alphanumeric key.
+</p>
+<p>
+There's a race condition: two clients calling <code>Put</code> simultaneously
+may be given the same key.
+</p>
+</div>
+
+<div class="slide">
+<h1>URLStore.Put - now thread-safe</h1>
+<pre>
+type URLStore struct {
+<em>	mu    sync.Mutex</em>
+	urls  *URLMap
+	count int
+}
+
+func (s *URLStore) Put(url string) (key string) {
+<em>	s.mu.Lock()</em>
+        for {
+                key = genKey(s.count)
+                s.count++
+                if _, ok := s.urls.Get(key); !ok {
+                        break
+                }
+        }
+        s.urls.Set(key, url)
+<em>	s.mu.Unlock()</em>
+	return
+}
+</pre>
+</div>
+
+<div class="slide">
+<h1>URLStore - the remaining bits</h1>
+<p>
+The <code>Get</code> method:
+</p>
+<pre>
+func (s *URLStore) Get(key string) (url string) {
+	if u, ok := s.urls.Get(key); ok {
+		url = u
+	}
+	return
+}
+</pre>
+<p>
+If <code>key</code> isn't found in the URLMap, the default value for the
+<code>string</code> type (an empty string) is returned.
+</p>
+<p>
+Finally, we need an initializer function:
+</p>
+<pre>
+func NewURLStore() *URLStore {
+	return &URLStore{urls: NewURLMap()}
+}
+</pre>
+</div>
+
+<!-- show the audience the complete store.go code now -->
+
+<div class="slide">
+<h1>HTTP Server</h1>
+<p>
+Go's <code>http</code> package provides the infrastructure to serve HTTP
+requests:
+</p>
+<pre>
+package main
+
+import (
+	"fmt"
+	"http"
+)
+
+func main()  {
+	http.HandleFunc("/", Hello)
+	http.ListenAndServe(":8080", nil)
+}
+
+func Hello(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "Hello, world!")
+}
+</pre>
+</div>
+
+<!-- demo this working http server -->
+
+<div class="slide">
+<h1>HTTP Handlers</h1>
+<p>
+Goto has two HTTP Handlers:
+</p>
+<ul>
+<li><code>Redirect</code>, which redirects short URL requests, and
+<li><code>Add</code>, which handles the submission of new URLs.
+</ul>
+<p>
+The <code>HandleFunc</code> function registers them with the <code>http</code>
+package.
+</p>
+<pre>
+func main()  {
+	http.HandleFunc("/", Redirect)
+	http.HandleFunc("/add", Add)
+	http.ListenAndServe(":8080", nil)
+}
+</pre>
+<p>
+Requests to <code>/add</code> will be served by the <code>Add</code> function.
+All other requests will be served by <code>Redirect</code>.
+</div>
+
+<div class="slide">
+<h1>The Add function</h1>
+<p>
+The <code>Add</code> function reads the <code>url</code>
+parameter from an HTTP request, <code>Put</code>s it into
+the <code>store</code>, and sends the corresponding short URL to the user.
+</p>
+<pre>
+func Add(w http.ResponseWriter, r *http.Request) {
+	url := r.FormValue("url")
+	key := store.Put(url)
+	fmt.Fprintf(w, "http://localhost:8080/%s", key)
+}
+</pre>
+<p>
+But what is <code>store</code>?
+It's a global variable pointing to an intantiation of <code>URLStore</code>:
+</p>
+<pre>
+var store = NewURLStore()
+</pre>
+<p>
+The line above can appear anywhere in the top level of a source file, and
+it will be evaluated at program initialization.
+</p>
+</div>
+
+<div class="slide">
+<h1>The Add function</h1>
+<p>
+What about the user interface? Let's modify <code>Add</code> to display an 
+HTML form when no <code>url</code> is supplied:
+</p>
+<pre>
+func Add(w http.ResponseWriter, r *http.Request) {
+	url := r.FormValue("url")
+<em>	if url == "" {
+		fmt.Fprint(w, AddForm)
+		return
+	}</em>
+	key := store.Put(url)
+	fmt.Fprintf(w, "http://localhost:8080/%s", key)
+}
+
+<em>const AddForm = `
+&lt;form method="POST" action="/add"&gt;
+URL: &lt;input type="text" name="url"&gt;
+&lt;input type="submit" value="Add"&gt;
+&lt;/form&gt; 
+`</em>
+</div>
+
+<div class="slide">
+<h1>The Redirect function</h1>
+<p>
+<code>Redirect</code> gets the key from the HTTP request path,
+<Code>Get</code>s the corresponding URL from the <code>store</code>,
+and sends and HTTP redirect to the user. (Or, if the URL is not found,
+a 404 "Not Found" error.)
+</p>
+<pre>
+func Redirect(w http.ResponseWriter, r *http.Request) {
+	key := r.URL.Path[1:]
+	url := store.Get(key)
+	if url == "" {
+		http.NotFound(w, r)
+		return
+	}
+	http.Redirect(w, r, url, http.StatusFound)
+}
+</pre>
+<p>
+The <code>key</code> is the request path minus the first character.
+For the request "<code>/foo</code>" the key would be "<code>foo</code>".
+</p>
+<p>
+<code>NotFound</code> and <code>Redirect</code> are helpers for writinr
+common HTTP responses. In the latter case, the <code>StatusFound</code>
+constant represents HTTP code 302 ("Found").
+</p>
+</div>
+
+<!-- This uses Go's concurrency primitives "behind the scenes" - more later -->
+
+
+
+<!--
+
+Other concerns:
+ - templating (see wiki codelab)
+ - reliability: reconnect to master when rpc conn dies
+-->
 
 </body>
 </html>
