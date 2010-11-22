@@ -48,7 +48,7 @@
 <div class="slide">
 <h1>Let's write a Go program</h1>
 <h3>goto: A URL Shortener</h3>
-<p>Goto provides a web service (HTTP) that does two things:</p>
+<p>Goto is a web service (HTTP) that does two things:</p>
 <ul>
 <li>When provided with a long URL, goto returns a short version:
 	<p class="eg">
@@ -61,12 +61,14 @@
 
 <div class="slide">
 <h1>Data structures</h1>
-<p>Goto maps short URLs to long URLs.</p>
-<p>To represent this mapping in memory we can use a hash table.</p>
-<p>Go's built-in <code>map</code> type allows you to map values of any* type
-   to values of any type.</p>
+<p>Goto maps short URLs to long URLs. To store this mapping in memory we can 
+   use a hash table.</p>
+<p>Go's <code>map</code> type allows you to map values of any* type
+   to values of any other type.</p>
+<p>Maps must be initialized with the built-in <code>make</code> function:</p>
 <pre>
 m := make(map[int]string)
+
 m[1] = "One"
 
 u := m[1]
@@ -75,18 +77,18 @@ u := m[1]
 v, present := m[2]
 // v == "", present == false
 </pre>
-<p>(*There are some restrictions on which types can be used as keys.)
+<p>(*There are some restrictions on which types can be used as map keys.)
 </div>
 
 <div class="slide">
 <h1>Data structures</h1>
-<p>Goto's fundamental data type:</p>
+<p>We specify the <code>URLMap</code> type, Goto's fundamental data structure:</p>
 <pre>
 type URLMap map[string]string
 
 m := make(URLMap)
 </pre>
-<p>The data structure <code>m</code> can now be used to map <code>http://goto/a</code> to <code>http://google.com/</code>:</p>
+<p>To store the mapping of <code>http://goto/a</code> to <code>http://google.com/</code> in <code>m</code>:</p>
 <pre>
 m["a"] = "http://google.com/"
 
@@ -106,7 +108,7 @@ Goto will serve many requests concurrently, so we must make our
 <h1>Adding a lock</h1>
 <p>
 To protect the <code>map</code> type from being modified while it is being
-read we must add a lock to the data structure.
+read, we must add a lock to the data structure.
 </p>
 <p>
 Changing the type definition, we make <code>URLMap</code> a <code>struct</code>
@@ -131,6 +133,10 @@ take the write lock (to the exclusion of all readers).
 <div class="slide">
 <h1>Setter and Getter methods</h1>
 <p>
+We must now interact with the <code>URLMap</code> through <code>Set</code>
+and <code>Get</code> methods.
+</p>
+<p>
 The <code>Set</code> method takes the write lock, and updates the url map:
 </p>
 <pre>
@@ -142,8 +148,8 @@ func (m *URLMap) Set(key, url string) {
 </pre>
 <p>
 The <code>Get</code> method takes the read lock with <code>RLock</code>, and
-returns two values: the URL as a string, and a boolean value that is true if the
-key is present in the map.
+returns two values: the URL as a string, and a boolean value that is true if
+the key is present in the map.
 </p>
 <pre>
 func (m *URLMap) Get(key string) (string, bool) {
@@ -211,12 +217,11 @@ type URLStore struct{}
 The <code>URLStore</code> has two methods:
 </p>
 <ul>
-<li><code>Put</code> takes a URL, and generates and returns the 
-associated short URL id.
+<li><code>Put</code> takes a URL, generates its short key, and returns the key.
 <pre>
 func (s *URLStore) Put(url string) (key string)
 </pre>
-<li><code>Get</code> takes a short URL id, and returns the associated URL.
+<li><code>Get</code> takes a short key and returns its associated URL.
 <pre>
 func (s *URLStore) Get(key string) (url string)
 </pre>
@@ -296,7 +301,7 @@ If <code>key</code> isn't found in the URLMap, the default value for the
 <code>string</code> type (an empty string) is returned.
 </p>
 <p>
-Finally, we need an initializer function:
+Finally, the initializer function:
 </p>
 <pre>
 func NewURLStore() *URLStore {
@@ -337,15 +342,15 @@ func Hello(w http.ResponseWriter, r *http.Request) {
 <div class="slide">
 <h1>HTTP Handlers</h1>
 <p>
-Goto has two HTTP Handlers:
+Goto has two HTTP handlers:
 </p>
 <ul>
 <li><code>Redirect</code>, which redirects short URL requests, and
 <li><code>Add</code>, which handles the submission of new URLs.
 </ul>
 <p>
-The <code>HandleFunc</code> function registers them with the <code>http</code>
-package.
+The <code>HandleFunc</code> function is used to register them with the
+<code>http</code> package.
 </p>
 <pre>
 func main()  {
@@ -355,8 +360,8 @@ func main()  {
 }
 </pre>
 <p>
-Requests to <code>/add</code> will be served by the <code>Add</code> function.
-All other requests will be served by <code>Redirect</code>.
+Requests to <code>/add</code> will be served by the <code>Add</code> handler.<br>
+All other requests will be served by the <code>Redirect</code> handler.
 </div>
 
 <div class="slide">
@@ -381,8 +386,9 @@ It's a global variable pointing to an intantiation of <code>URLStore</code>:
 var store = NewURLStore()
 </pre>
 <p>
-The line above can appear anywhere in the top level of a source file, and
-it will be evaluated at program initialization.
+The line above can appear anywhere in the top level of a source file.
+It will be evaluated at program initialization, before the <code>main</code>
+function is called.
 </p>
 </div>
 
@@ -414,10 +420,10 @@ URL: &lt;input type="text" name="url"&gt;
 <div class="slide">
 <h1>HTTP Handlers: Redirect</h1>
 <p>
-The <code>Redirect</code> function gets the key from the HTTP request path,
-<Code>Get</code>s the corresponding URL from the <code>store</code>,
-and sends and HTTP redirect to the user. (Or, if the URL is not found,
-a 404 "Not Found" error.)
+The <code>Redirect</code> function finds the key in the HTTP request path,
+retrieves the corresponding URL from the <code>store</code>,
+and sends an HTTP redirect to the user.
+If the URL is not found, a 404 "Not Found" error is sent instead.
 </p>
 <pre>
 func Redirect(w http.ResponseWriter, r *http.Request) {
@@ -436,21 +442,28 @@ For the request "<code>/foo</code>" the key would be "<code>foo</code>".
 </p>
 <p>
 <code>http.NotFound</code> and <code>http.Redirect</code> are helpers for
-sending common HTTP responses.  The <code>http.StatusFound</code> is a
-constant that represents HTTP code 302 ("Found").
+sending common HTTP responses.  The constant <code>http.StatusFound</code>
+represents HTTP code 302 ("Found").
 </p>
 </div>
 
-<!-- 
-This is code/0
-This uses Go's concurrency primitives "behind the scenes" - more later 
--->
+<div class="slide">
+<h1>Demonstration</h1>
+<p>See the code we've written so far:</p>
+<ul>
+<li><a href="https://github.com/nf/goto/tree/master/talk/code/0/">https://github.com/nf/goto/tree/master/talk/code/0/</a></li>
+</ul>
+<p>
+The <code>http</code> package uses Go's concurrency features 
+"behind the scenes". We will use goroutines and channels explicitly later.
+</p>
+</div>
 
 <div class="slide">
 <h1>Interfaces: an aside</h1>
 <p>
 Go's interface types define a set of methods. Any type that implements those
-methods satisfies that interface type.
+methods satisfies that interface.
 </p>
 <p>
 One frequently-used interface is <code>Writer</code>, specified by the 
@@ -489,7 +502,8 @@ func Fprintf(w io.Writer, format string, a ...interface{}) (n int, error os.Erro
 </pre>
 <p>
 Because <code>http.ResponseWriter</code> implements the <code>Write</code>
-method, it can be passed to <code>Fprint</code> as an <code>io.Writer</code>.
+method, <code>w</code> can be passed to <code>Fprint</code> as an
+<code>io.Writer</code>.
 </p>
 <p>
 </div>
@@ -497,23 +511,26 @@ method, it can be passed to <code>Fprint</code> as an <code>io.Writer</code>.
 <div class="slide">
 <h1>Persistent Storage</h1>
 <p>
-When the goto process ends all the shortened URLs in memory will be lost.
+When the goto process ends, the shortened URLs in memory will be lost.
+</p>
+<p>
 This isn't very helpful.
 </p>
 <p>
-Let's enhance <code>URLStore</code> to write its <code>URLMap</code> to a file,
-and restore that data on start-up.
+Let's modify <code>URLStore</code> so that it writes its <code>URLMap</code> to
+a file, and restores that data on start-up.
 </p>
 </div>
 
 <div class="slide">
 <h1>Persistent Storage: gob</h1>
 <p>
-How will the <code>URLMap</code> be represented on disk?
+How should we represent the <code>URLMap</code> on disk?
 </p>
 <p>
-The <code>gob</code> package handles serializing and deserializing Go
-data structures. (Similar to Python's "pickle".)
+Gos <code>gob</code> package handles serializing and deserializing Go
+data structures.<br>
+(Similar to Python's "pickle" or Java's "Serialization".)
 </p>
 <p>
 The <code>gob</code> package's <code>NewEncoder</code> and
@@ -530,22 +547,8 @@ Go data structures.
 <div class="slide">
 <h1>Persistent Storage: URLMap</h1>
 <p>
-Let's add two methods to <code>URLMap</code>:
+The <code>WriteTo</code> method writes the URLMap's data to the provided <code>io.Writer</code>:
 </p>
-<ul>
-<li><code>WriteTo</code> writes the URLMap's data to the provided <code>io.Writer</code>:
-<pre>
-func (m *URLMap) WriteTo(w io.Writer) os.Error
-</pre>
-<li><code>ReadFrom</code> reads URLMap data from the provided <code>io.Reader</code>:
-<pre>
-func (m *URLMap) ReadFrom(w io.Reader) os.Error
-</pre>
-</ul>
-</div>
-
-<div class="slide">
-<h1>Persistent Storage: URLMap</h1>
 <pre>
 func (m *URLMap) WriteTo(w io.Writer) os.Error {
 	m.mu.RLock()
@@ -554,7 +557,16 @@ func (m *URLMap) WriteTo(w io.Writer) os.Error {
 	m.mu.RUnlock()
 	return err
 }
+</pre>
+</ul>
+</div>
 
+<div class="slide">
+<h1>Persistent Storage: URLMap</h1>
+<p>
+The <code>ReadFrom</code> method reads URLMap data from the provided <code>io.Reader</code>:
+</p>
+<pre>
 func (m *URLMap) ReadFrom(r io.Reader) os.Error {
 	m.mu.Lock()
 	d := gob.NewDecoder(r)
@@ -583,7 +595,7 @@ func foo() {
 </pre>
 <p>
 We can use <code>defer</code> to simplify the <code>WriteTo</code> and
-<code>ReadFrom</code> methods from the previous slide.
+<code>ReadFrom</code> methods.
 </p>
 </div>
 
@@ -606,11 +618,11 @@ func (m *URLMap) ReadFrom(r io.Reader) os.Error {
 </pre>
 <p>
 Using <code>defer</code>, we remove the need for the local variable
-<code>err</code>.
+<code>err</code>. The mutexes are unlocked <em>after</em> the return statements.
 </p>
-<p>
-The mutexes are unlocked <em>after</em> the return
-statements.
+<p class="eg">
+There's more to defer.
+See the "<a href="http://blog.golang.org/2010/08/defer-panic-and-recover.html">Defer, Panic, and Recover</a>" blog post for an in-depth discussion.
 </p>
 </div>
 
@@ -657,6 +669,9 @@ func (s *URLStore) load() os.Error {
 	return s.urls.ReadFrom(f)
 }
 </pre>
+<p>The variable <code>f</code> is an <code>*os.File</code>, which implements
+the <code>Read</code> method and can therefore be used as an
+<code>io.Reader</code> by <code>ReadFrom</code>.
 </div>
 
 <div class="slide">
@@ -667,7 +682,8 @@ truncating it) and writes the contents of the <code>URLMap</code> to it.
 </p>
 <pre>
 func (s *URLStore) save() os.Error {
-	f, err := os.Open(s.filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	f, err := os.Open(s.filename, 
+		os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
 	}
@@ -675,13 +691,16 @@ func (s *URLStore) save() os.Error {
 	return s.urls.WriteTo(f)
 }
 </pre>
+<p>Again, the variable <code>f</code> is an <code>*os.File</code>, which also
+implements the <code>Write</code> method and can therefore be used as an
+<code>io.Writer</code> by <code>WriteTo</code>.
 </div>
 
 <div class="slide">
 <h1>Persistent Storage: URLStore</h1>
 <p>
-Now we can call <code>load</code> from <code>NewURLStore</code>,
-and <code>save</code> from the <code>Put</code> method.
+Now we can make it <code>load</code> when initializing the
+<code>URLStore</code>, and <code>save</code> when a new URL is added.
 </p>
 <pre>
 func NewURLStore(filename string) *URLStore {
@@ -707,18 +726,18 @@ func (s *URLStore) Put(url string) (key string) {
 <div class="slide">
 <h1>Persistent Storage</h1>
 <p>
-Finally, we must specify a filename when <code>instantiating</code> the 
-URLStore.
+Finally, we must specify a filename when instantiating the URLStore:
 </p>
 <pre>
 var store = NewURLStore(<em>"store.gob"</em>)
 </pre>
-</div>
 
-<!-- 
-This is code/1.
-demo 
--->
+<h1>Demonstration</h1>
+<p>See the code we've written so far:</p>
+<ul>
+<li><a href="https://github.com/nf/goto/tree/master/talk/code/1/">https://github.com/nf/goto/tree/master/talk/code/1/</a></li>
+</ul>
+</div>
 
 <!--
 <div class="slide">

@@ -329,3 +329,8 @@ a.titleslide { font-weight: bold; font-style: italic }
 .contrasts em {
 	color: #642;
 }
+
+.eg {
+	color: #555;
+	font-style: italic;
+}
