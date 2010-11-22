@@ -450,6 +450,8 @@ represents HTTP code 302 ("Found").
 
 <div class="slide">
 <h1>Demonstration</h1>
+<p>We've written under 100 lines of code, and have a complete,
+   functional web application.</p>
 <p>See the code we've written so far:</p>
 <ul>
 <li><a href="https://github.com/nf/goto/tree/master/talk/code/0/">https://github.com/nf/goto/tree/master/talk/code/0/</a></li>
@@ -906,7 +908,7 @@ ok := ch <- 1
 <span>// ok == true if the send occurred</span>
 </pre>
 <p>
-Similarly, you can perform non-blocking reads by assigingn the second return
+Similarly, you can perform non-blocking reads by assigning the second return
 value of the read:
 </p>
 <pre>
@@ -949,6 +951,13 @@ func (s *URLStore) saveLoop() {
 	}
 }
 </pre>
+<p>
+Note that while <code>dirty</code> carries boolean values
+(<code>true</code> or <code>false</code>), 
+we're not actually concerned with the value itself.
+It's the presence of <i>any</i> value, true or false, that tells
+<code>saveLoop</code> when to <code>save</code>.
+</p>
 </div>
 
 <div class="slide">
@@ -1412,16 +1421,15 @@ be improved:
 <li>Aesthetics: the user interface could be (much) prettier. 
     See the <a href="http://golang.org/doc/codelab/wiki/">Wiki Codelab</a>
     for details on using Go's <code>template</code> package.
-<li>Reliability: the RPC connections could be more reliable.
+<li>Reliability: the master/slave RPC connections could be more reliable.
     If the client-server connection goes down,
     the client should attempt to re-dial.
     A "dialer" goroutine could manage this.
-<li>Security: this code allows anonymous users to convince the server to
-    send arbitrary HTTP headers. Some sanitization should be performed on
-    the user-supplied URLs.
 <li>Resource exhaustion: as the size of the URL database grows, memory usage
     might become an issue. This could be resolved by sharding the master 
     servers by key.
+<li>Deletion: to support deletion of shortened URLs, the interactions 
+    bewteen master and slave would need to be made more complex.
 </ul>
 </div>
 
@@ -1431,13 +1439,6 @@ be improved:
 <p>adg@golang.org</p>
 <p><img src="bumper640x360.png"></p>
 </div>
-
-<!--
-
-Other concerns:
- - templating (see wiki codelab)
- - reliability: reconnect to master when rpc conn dies
--->
 
 </body>
 </html>
