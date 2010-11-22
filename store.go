@@ -21,7 +21,7 @@ type Store interface {
 type URLStore struct {
 	mu       sync.Mutex
 	urls     *URLMap
-	count    int64
+	count    int
 	filename string
 	dirty    chan bool
 }

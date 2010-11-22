@@ -50,7 +50,7 @@ func Redirect(w http.ResponseWriter, r *http.Request) {
 func Add(w http.ResponseWriter, r *http.Request) {
 	url := r.FormValue("url")
 	if url == "" {
-		fmt.Fprint(w, addform)
+		fmt.Fprint(w, AddForm)
 		return
 	}
 	var key string
@@ -61,7 +61,7 @@ func Add(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "http://%s/%s", *hostname, key)
 }
 
-const addform = `
+const AddForm = `
 <form method="POST" action="/add">
 URL: <input type="text" name="url">
 <input type="submit" value="Add">
