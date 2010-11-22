@@ -441,7 +441,10 @@ constant that represents HTTP code 302 ("Found").
 </p>
 </div>
 
-<!-- This uses Go's concurrency primitives "behind the scenes" - more later -->
+<!-- 
+This is code/0
+This uses Go's concurrency primitives "behind the scenes" - more later 
+-->
 
 <div class="slide">
 <h1>Interfaces: an aside</h1>
@@ -631,7 +634,7 @@ type URLStore struct {
 
 func NewURLStore(<em>filename string</em>) *URLStore {
 	return &URLStore{
-		urls: NewURLMap(),
+		urls:     NewURLMap(),
 <em>		filename: filename,</em>
 	}
 }
@@ -683,7 +686,7 @@ and <code>save</code> from the <code>Put</code> method.
 <pre>
 func NewURLStore(filename string) *URLStore {
 	s := &URLStore{
-		urls: NewURLMap(),
+		urls:     NewURLMap(),
 		filename: filename,
 	}
 	<em>s.load()</em>
@@ -712,7 +715,10 @@ var store = NewURLStore(<em>"store.gob"</em>)
 </pre>
 </div>
 
-<!-- demo -->
+<!-- 
+This is code/1.
+demo 
+-->
 
 <!--
 <div class="slide">
