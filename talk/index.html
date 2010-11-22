@@ -13,6 +13,7 @@
 <div class="slide titlepage">
 <h1>Practical Go Programming</h1>
 <p>Andrew Gerrand</p>
+<p>adg@golang.org</p>
 <p><img src="bumper640x360.png"></p>
 </ul>
 </div>
@@ -1001,15 +1002,435 @@ or not.
 </ul>
 </div>
 
-<!--
 <div class="slide">
 <h1>Command-line flags</h1>
 <p>
-Let's remove some of the hard-coded values from the code.
+Go's <code>flag</code> package makes it easy to handle command-line flags.
+Let's use it to replace the constants we have littered through our code so
+far.
 </p>
-Go's <code>flag</code> package
+<p>
+We first create some global variables to hold the flag values:
+</p>
+<pre>
+import (
+	"flag"
+	"fmt"
+<em>	"http"</em>
+)
+
+var (
+  listenAddr = flag.String("http", ":9980", "http listen address")
+  dataFile   = flag.String("file", "store.gob", "data store file name")
+  hostname   = flag.String("host", "localhost", "http host name")
+)
+</pre>
 </div>
--->
+
+<div class="slide">
+<h1>Command-line flags</h1>
+<p>
+Then we can add <code>flag.Parse()</code> to the <code>main</code> function,
+and instantiate the <code>URLStore</code> after the flags have been parsed
+(once we know the value of <code>*dataFile</code>).
+</p>
+<pre>
+var store<em> *URLStore</em>
+
+func main() {
+<em>	flag.Parse()
+	store = URLStore(*dataFile)</em>
+        http.HandleFunc("/", Redirect)
+        http.HandleFunc("/add", Add)
+        http.ListenAndServe(<em>*listenAddr</em>, nil)
+}
+</pre>
+<p>
+And substitute <code>*hostname</code> in the <code>Add</code> handler:
+</p>
+<pre>
+	fmt.Fprintf(w, "http://<em>%s</em>/%s", <em>*hostname,</em> key)
+</pre>
+</div>
+
+
+<div class="slide">
+<h1>One more thing...</h1>
+<p>
+So far we have a program that runs as a single process. But a single process
+running on one machine can only serve so many concurrent requests.
+</p>
+<p>
+A URL Shortener typically serves many more Redirects (reads) than it does
+Adds (writes).
+</p>
+<p>
+Therefore we can create an arbitrary number of read-only slaves that serve and
+cache Get requests, and pass Puts through to the master.
+</p>
+</div>
+
+<div class="slide">
+<h1>RPC: an aside</h1>
+<p>
+Go's <code>rpc</code> package provides a convenient means of making function
+calls over a network connection.
+</p>
+<p>
+To serve, define a type with the methods you want to make accesible to RPC:
+</p>
+<pre>
+type Args struct { A, B int }
+type Arith int
+func (t *Arith) Multiply(args *Args, reply *int) os.Error {
+	*reply = args.A * args.B
+	return nil
+}
+</pre>
+<p>
+Then <code>Register</code> them with the <code>rpc</code> module, and start
+an HTTP server (for RPC-over-HTTP).
+</p>
+<pre>
+rpc.Register(new(Arith))
+rpc.HandleHTTP()
+http.ListenAndServe(":8080", nil)
+</pre>
+</div>
+
+<div class="slide">
+<h1>RPC: an aside</h1>
+<p>
+On the client side, dial the server:
+</p>
+<pre>
+client, err := rpc.DialHTTP("tcp", "localhost:8080")
+if err != nil {
+	log.Exit("dialing:", err)
+}
+</pre>
+<p>
+Set up args and reply values, and make the RPC <code>Call</code>:
+</p>
+<pre>
+args := Args{7,8}
+var reply int
+err = client.Call("Arith.Multiply", &args, &reply)
+if err != nil {
+	log.Exit("arith error:", err)
+}
+fmt.Printf("Arith: %d*%d=%d", args.A, args.B, *reply)
+</pre>
+</div>
+
+<div class="slide">
+<h1>Making URLStore an RPC service</h1>
+<p>
+To make <code>URLStore</code> an RPC services, we need to alter the 
+<code>Get</code> and <code>Put</code> methods to be <code>rpc</code>-friendly.
+The function signatures change, and now return an <code>os.Error</code> value.
+</p>
+<p>
+The <code>Get</code> method can return an explicit error when the provided key 
+is not found:
+</p>
+<pre>
+func (s *URLStore) Get(key, url *string) <em>os.Error</em> {
+	if u, ok := s.urls.Get(*key); ok {
+		*url = u
+<em>		return nil</em>
+	}
+<em>	return os.NewError("key not found")</em>
+}
+</pre>
+<p>
+Beyond the function signature, the <code>Put</code> method barely changes
+in its actual code (not shown here):
+</p>
+<pre>
+func (s *URLStore) Put(url, key *string) <em>os.Error</em>
+</pre>
+</div>
+
+<div class="slide">
+<h1>Making URLStore an RPC service</h1>
+<p>
+In turn, the HTTP handlers must be modfied to accommodate the changes to
+<code>URLStore</code>.
+</p>
+<p>
+The <code>Redirect</code> handler now returns the error string provided by
+the <code>URLStore</code>:
+</p>
+<pre>
+func Redirect(w http.ResponseWriter, r *http.Request) {
+	key := r.URL.Path[1:]
+<em>	var url string</em>
+	if <em>err</em> := store.Get(<em>&</em>key, <em>&</em>url); err != nil {
+<em>	        http.Error(w, err.String(), http.StatusInternalServerError)</em>
+	        return
+	}
+	http.Redirect(w, r, url, http.StatusFound)
+}
+</pre>
+</div>
+
+<div class="slide">
+<h1>Making URLStore an RPC service</h1>
+<p>The <code>Add</code> handler changes in much the same way:</p>
+<pre>
+func Add(w http.ResponseWriter, r *http.Request) {
+	url := r.FormValue("url")
+	if url == "" {
+	        fmt.Fprint(w, AddForm)
+	        return
+	}
+<em>	var key string</em>
+	if <em>err</em> := store.Put(<em>&</em>url, <em>&</em>key); err != nil {
+<em>	        http.Error(w, err.String(), http.StatusInternalServerError)</em>
+	        return
+	}
+	fmt.Fprintf(w, "http://%s/%s", *hostname, key)
+}
+</pre>
+</div>
+
+<div class="slide">
+<h1>Making URLStore an RPC service</h1>
+<p>Finally, we can register the <code>URLStore</code> as an <code>rpc</code>
+service. First we'll add a command-line flag to enable it:</p>
+<pre>
+rpcEnabled = flag.Bool("rpc", false, "enable RPC server")
+</pre>
+<p>
+And add the registration to <code>main</code>:
+</p>
+<pre>
+func main() {
+	flag.Parse()
+	store = URLStore(*dataFile)
+<em>	if *rpcEnabled {
+	        rpc.RegisterName("Store", store)
+	        rpc.HandleHTTP()
+	}</em>
+<span>	... (set up http)</span>
+}
+</pre>
+</div>
+
+<div class="slide">
+<h1>ProxyStore</h1>
+<p>
+Now that we have the URLStore available as an RPC service, we can build
+another type that has the <code>Get</code> and <code>Put</code> methods of
+the <code>URLStore</code>, but instead forwards requests to the RPC server.
+</p>
+<p>
+We will call it <code>ProxyStore</code>:
+</p>
+<pre>
+type ProxyStore struct {
+        client *rpc.Client
+}
+
+func NewProxyStore(addr string) *ProxyStore {
+        client, err := rpc.DialHTTP("tcp", addr)
+        if err != nil {
+                log.Println("ProxyStore:", err)
+        }
+        return &ProxyStore{client: client}
+}
+</pre>
+</div>
+
+<div class="slide">
+<h1>ProxyStore</h1>
+<p>
+Its <code>Get</code> and <code>Put</code> methods pass the requests directly
+to the RPC server:
+</p>
+<pre>
+func (s *ProxyStore) Get(key, url *string) os.Error {
+        return s.client.Call("Store.Get", key, url)
+}
+
+func (s *ProxyStore) Put(url, key *string) os.Error {
+        return s.client.Call("Store.Put", url, key)
+}
+</pre>
+</div>
+
+<div class="slide">
+<h1>Integrating ProxyStore</h1>
+<p>
+Now we want to be able to use <code>ProxyStore</code> with the web front-end,
+in the place of <code>URLStore</code>.
+</p>
+<p>
+Since they both implement the same <code>Get</code> and <code>Put</code>
+methods, we can specify an interface to generalize their behavior:
+</p>
+<pre>
+type Store interface {
+        Put(url, key *string) os.Error
+        Get(key, url *string) os.Error
+}
+</pre>
+<p>
+Now our global variable <code>store</code> can be of type <code>Store</code>:
+</p>
+<pre>
+var store Store
+</pre>
+</div>
+
+<div class="slide">
+<h1>Integrating ProxyStore</h1>
+<p>
+Our <code>main</code> function can instantiate either a <code>URLStore</code>
+or <code>ProxyStore</code> depending on a new command-line flag:
+</p>
+<pre>
+masterAddr = flag.String("master", "", "RPC master address")
+</pre>
+<pre>
+func main() {
+        flag.Parse() 
+        if *masterAddr != "" {
+                store = NewProxyStore(*masterAddr)
+        } else {
+                store = NewURLStore(*dataFile)
+        }
+<span>	...</span>
+}
+</pre>
+<p>
+The rest of the front-end code continues to work as before.
+</p>
+</div>
+
+<div class="slide">
+<h1>Demonstration</h1>
+<p>
+Now we can watch requests being passed from the slave to the master.
+</p>
+<p>
+But there's something missing: the slave must cache the data it 
+gets from the master, otherwise it provides no benefit.
+</p>
+</div>
+
+<div class="slide">
+<h1>A caching ProxyStore</h1>
+<p>
+We already have the perfect data structure for caching this data, the
+<code>URLMap</code>.
+</p>
+<p>
+Let's add a <code>URLMap</code> instance to <code>ProxyStore</code>:
+</p>
+<pre>
+type ProxyStore struct {
+<em>	urls   *URLMap</em>
+	client *rpc.Client
+}
+
+func NewProxyStore(addr string) *ProxyStore {
+	client, err := rpc.DialHTTP("tcp", addr)
+	if err != nil {
+	        log.Println("ProxyStore:", err)
+	}
+	return &ProxyStore{<em>urls: NewURLMap()</em>, client: client}
+}
+</pre>
+</div>
+
+<div class="slide">
+<h1>A caching ProxyStore</h1>
+<p>
+The <code>Get</code> method should first check if the key is in the cache.
+If present, <code>Get</code> should return the cached result. If not,
+it should make the RPC call, and update its local cache with the result.
+</p>
+<pre>
+func (s *ProxyStore) Get(key, url *string) os.Error {
+<em>	if u, ok := s.urls.Get(*key); ok {
+	        *url = u
+	        return nil
+	}</em>
+	err := s.client.Call("Store.Get", key, url)
+<em>	if err == nil {
+	        s.urls.Set(*key, *url)
+	}</em>
+	return err
+}
+</pre>
+</div>
+
+<div class="slide">
+<h1>A caching ProxyStore</h1>
+<p>
+The <code>Put</code> method need only update the cache when it performs a
+successful RPC <code>Put</code>.
+</p>
+<pre>
+func (s *ProxyStore) Put(url, key *string) os.Error {
+	err := s.client.Call("Store.Put", url, key)
+<em>	if err == nil {
+	        s.urls.Set(*key, *url)
+	}</em>
+	return err
+}
+</pre>
+</div>
+
+<div class="slide">
+<h1>Final demonstration</h1>
+<p>
+Now we can launch a master and several slaves, and stress-test the slaves.
+</p>
+<p>
+[This part will incorporate a nice visual demonstration of the load being
+shared across the several front-ends, and the master serving fewer requests.]
+</p>
+<p>
+[Should add a little more discussion here.]
+</p>
+<p>See the complete program:</p>
+<ul>
+<li><a href="https://github.com/nf/goto">https://github.com/nf/goto</a></li>
+</ul>
+</div>
+
+<div class="slide">
+<h1>Additional concerns</h1>
+<p>
+While this program does what we set out to do, there are a few ways it could
+be improved:
+</p>
+<ul>
+<li>Aesthetics: the user interface could be (much) prettier. 
+    See the <a href="http://golang.org/doc/codelab/wiki/">Wiki Codelab</a>
+    for details on using Go's <code>template</code> package.
+<li>Reliability: the RPC connections could be more reliable.
+    If the client-server connection goes down,
+    the client should attempt to re-dial.
+    A "dialer" goroutine could manage this.
+<li>Security: this code allows anonymous users to convince the server to
+    send arbitrary HTTP headers. Some sanitization should be performed on
+    the user-supplied URLs.
+<li>Resource exhaustion: as the size of the URL database grows, memory usage
+    might become an issue. This could be resolved by sharding the master 
+    servers by key.
+</ul>
+</div>
+
+<div class="slide titlepage">
+<h1>Questions?</h1>
+<p>Andrew Gerrand</p>
+<p>adg@golang.org</p>
+<p><img src="bumper640x360.png"></p>
+</div>
 
 <!--
 
