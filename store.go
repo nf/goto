@@ -63,7 +63,7 @@ func (s *URLStore) Put(url, key *string) os.Error {
 }
 
 func (s *URLStore) load() os.Error {
-	f, err := os.Open(s.filename, os.O_RDONLY, 0644)
+	f, err := os.Open(s.filename, os.O_RDONLY, 0)
 	if err != nil {
 		return err
 	}
@@ -72,8 +72,6 @@ func (s *URLStore) load() os.Error {
 }
 
 func (s *URLStore) save() os.Error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	f, err := os.Open(s.filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
@@ -150,15 +148,15 @@ func (m *URLMap) Get(key string) (string, bool) {
 }
 
 func (m *URLMap) WriteTo(w io.Writer) os.Error {
-	e := gob.NewEncoder(w)
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	e := gob.NewEncoder(w)
 	return e.Encode(m.urls)
 }
 
 func (m *URLMap) ReadFrom(r io.Reader) os.Error {
-	d := gob.NewDecoder(r)
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	d := gob.NewDecoder(r)
 	return d.Decode(&m.urls)
 }
