@@ -43,14 +43,6 @@
   - demo redirects /0, /1, etc
   - this is using Go's concurrency features "behind the scenes" - more later
 
-- Let's remove some 'magic numbers' from the code:
-  - command-line flags
-    - ASIDE: the flag package
-    - listenAddr, hostname, filename
-    - replace constants
-    - flag.Parse in main
- - demo working command lines
-
 - Oh no! The process ended and we lost all our data! We need persistent storage.
   - ASIDE: interfaces:
     - os.Error interface
@@ -82,9 +74,16 @@
     - ReadFrom f
   - add load to NewURLStore
   - add save to Put
-    - thread-safety again! add Lock/Unlock to save method
   - demo our file store now works:
     - launch app, add some urls, kill app, reload, urls still there
+
+- Let's remove some 'magic numbers' from the code:
+  - command-line flags
+    - ASIDE: the flag package
+    - listenAddr, hostname, filename
+    - replace constants
+    - flag.Parse in main
+ - demo working command lines
 
 - Another issue: When many clients try to add URLs in quick succession and the
   URL list is saved to disk after each addition, each client will need to wait

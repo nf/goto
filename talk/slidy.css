@@ -138,6 +138,9 @@ pre em {
  color: #8C4200;
  font-style: normal;
 }
+pre span {
+ color: #888;
+}
 
 li pre { margin-left: 0; }
 
