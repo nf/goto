@@ -531,7 +531,7 @@ a file, and restores that data on start-up.
 How should we represent the <code>URLMap</code> on disk?
 </p>
 <p>
-Gos <code>gob</code> package handles serializing and deserializing Go
+Go's <code>gob</code> package handles serializing and deserializing Go
 data structures.<br>
 (Similar to Python's "pickle" or Java's "Serialization".)
 </p>
@@ -745,7 +745,7 @@ var store = NewURLStore(<em>"store.gob"</em>)
 <div class="slide">
 <h1>A point of contention</h1>
 <p>
-Consider this pathalogical situation:
+Consider this pathological situation:
 </p>
 <ul>
 <li>Many clients attempt to add URLs simultaneously.
