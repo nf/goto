@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/nf/stat"
 	"gob"
 	"io"
 	"log"
@@ -10,7 +11,12 @@ import (
 	"time"
 )
 
-const saveTimeout = 10e9
+const saveTimeout = 60e9
+
+func init() {
+	go stat.Monitor(1e9)
+}
+
 
 type Store interface {
 	Put(url, key *string) os.Error
@@ -42,6 +48,7 @@ func NewURLStore(filename string) *URLStore {
 func (s *URLStore) Get(key, url *string) os.Error {
 	if u, ok := s.urls.Get(*key); ok {
 		*url = u
+		stat.In <- "get"
 		return nil
 	}
 	return os.NewError("key not found")
@@ -59,6 +66,7 @@ func (s *URLStore) Put(url, key *string) os.Error {
 	s.urls.Set(*key, *url)
 	s.mu.Unlock()
 	_ = s.dirty <- true
+	stat.In <- "put"
 	return nil
 }
 
@@ -106,6 +114,7 @@ func NewProxyStore(addr string) *ProxyStore {
 
 func (s *ProxyStore) Get(key, url *string) os.Error {
 	if u, ok := s.urls.Get(*key); ok {
+		stat.In <- "cache hit"
 		*url = u
 		return nil
 	}
@@ -113,12 +122,14 @@ func (s *ProxyStore) Get(key, url *string) os.Error {
 	if err == nil {
 		s.urls.Set(*key, *url)
 	}
+	stat.In <- "cache miss"
 	return err
 }
 
 func (s *ProxyStore) Put(url, key *string) os.Error {
 	err := s.client.Call("Store.Put", url, key)
 	if err == nil {
+		stat.In <- "proxy put"
 		s.urls.Set(*key, *url)
 	}
 	return err
