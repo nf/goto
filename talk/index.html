@@ -327,13 +327,13 @@ import (
 	"http"
 )
 
+func Hello(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "Hello, world!")
+}
+
 func main()  {
 	http.HandleFunc("/", Hello)
 	http.ListenAndServe(":8080", nil)
-}
-
-func Hello(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Hello, world!")
 }
 </pre>
 </div>
@@ -488,7 +488,7 @@ Many types, from both the standard library and other Go code, implement the
 <h1>Interfaces: an aside</h1>
 <p>
 In fact, we've already used an <code>io.Writer</code> in our 
-<code>Add</code> HTTP handler:
+HTTP handlers:
 </p>
 <pre>
 func Add(w http.ResponseWriter, r *http.Request) {
@@ -636,8 +636,9 @@ Now that we have a means of reading and writing <code>URLMap</code> data,
 we can make <code>URLStore</code> load and save data from files.
 </p>
 <p>
-First, we'll add a <code>filename</code> parameter to <code>NewURLStore</code>
-and store it in the <code>URLStore</code> struct:
+First, we'll add a <code>filename</code> element to the <code>URLStore</code>
+struct, and add a <code>filename</code> parameter to the
+<code>NewURLStore</code> function:
 </p>
 <pre>
 type URLStore struct {
@@ -659,7 +660,7 @@ func NewURLStore(<em>filename string</em>) *URLStore {
 <div class="slide">
 <h1>Persistent Storage: URLStore</h1>
 <p>
-The <code>load</code> method opens a file for reading and reads its contents
+The <code>load</code> method opens a file and reads its contents
 into the <code>URLMap</code>.
 </p>
 <pre>
@@ -685,8 +686,7 @@ truncating it) and writes the contents of the <code>URLMap</code> to it.
 </p>
 <pre>
 func (s *URLStore) save() os.Error {
-	f, err := os.Open(s.filename, 
-		os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	f, err := os.Open(s.filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
 	}
@@ -773,15 +773,14 @@ go foo()
 bar()
 </pre>
 <p>
-The <code>bar</code> function runs in the current goroutine, while 
-<code>foo</code> runs in a newly created goroutine.
+The <code>foo</code> function runs in a newly created goroutine, while
+<code>bar</code> runs in the main goroutine.
 </p>
 <p>
 Memory is shared between goroutines, like many popular threading models.
 </p>
 <p>
-Goroutines are cheaper to create than operating system threads,
-and goroutines are typically multiplexed across fewer OS threads.
+Goroutines are cheaper to create than operating system threads.
 </p>
 </div>
 
@@ -792,12 +791,12 @@ Let's create a function that will run in its own goroutine, periodically saving
 the data store.
 </p>
 <pre>
-const saveTimeout = 10e9 // 10 seconds
+const saveTimeout = 10e9 // 10 seconds in nanoseconds
 
 func (s *URLStore) saveLoop() {
 	for {
-		time.Sleep(saveTimeout)
 		s.save()
+		time.Sleep(saveTimeout)
 	}
 }
 </pre>
@@ -866,10 +865,6 @@ i := &lt;-ch // receiving an int from the channel
 
 <div class="slide">
 <h1>Channels: an aside</h1>
-<p>
-In this example, the main goroutine will block until the receive from
-<code>ch</code> is ready.
-</p>
 <pre>
 func foo(ch chan int) {
 	<span>// some computation resulting in i</span>
@@ -883,6 +878,10 @@ func main() {
 }
 </pre>
 <p>
+In this example, the main goroutine will block until the receive from
+<code>ch</code> is ready.
+</p>
+<p>
 That's because this channel is unbuffered. For an unbuffered
 send/receive to occur, both the sending and receiving sides must be ready.
 This property can be exploited to provide a powerful synchronization mechanism.
@@ -893,13 +892,13 @@ This property can be exploited to provide a powerful synchronization mechanism.
 <h1>Channels: an aside</h1>
 <p>
 Buffered channels are initialized by specifying the buffer size as the 
-second argument to <code>make</code>. Sends to a buffered channel will not
-block until the buffer is full.
+second argument to <code>make</code>:
 </p>
 <pre>
 ch := make(chan int, 10)
 </pre>
 <p>
+Sends to a buffered channel will not block until the buffer is full.
 Non-blocking sends are performed by treating the send statement as
 an expression:
 </p>
@@ -908,7 +907,7 @@ ok := ch <- 1
 <span>// ok == true if the send occurred</span>
 </pre>
 <p>
-Similarly, you can perform non-blocking reads by assigning the second return
+Similarly, you can perform non-blocking reads by taking the second return
 value of the read:
 </p>
 <pre>
@@ -963,6 +962,27 @@ It's the presence of <i>any</i> value, true or false, that tells
 <div class="slide">
 <h1>Saving on demand</h1>
 <p>
+We add a non-blocking send to the <code>Put</code> method:
+</p>
+<pre>
+func (s *URLStore) Put(url string) (key string) {
+<span>	... (generate key)</span>
+        s.urls.Set(key, url)
+	s.mu.Unlock()
+<em>	_ = s.dirty <- true</em>
+	return
+}
+</pre>
+<p>
+The underscore in the expression means "nil assignment"; the value will be 
+thrown away. This is because we don't care whether the message is received
+or not.
+</p>
+</div>
+
+<div class="slide">
+<h1>Saving on demand</h1>
+<p>
 We make <code>dirty</code> a buffered channel with space for just one value,
 so that if a send occurs while <code>saveLoop</code> is busy 
 (either saving or sleeping) the value will still be received when 
@@ -980,27 +1000,6 @@ func NewURLStore(filename string) *URLStore {
 	return s
 }
 </pre>
-</div>
-
-<div class="slide">
-<h1>Saving on demand</h1>
-<p>
-Finally, we add a non-blocking send to the <code>Put</code> method:
-</p>
-<pre>
-func (s *URLStore) Put(url string) (key string) {
-<span>	... (generate key)</span>
-        s.urls.Set(key, url)
-	s.mu.Unlock()
-<em>	_ = s.dirty <- true</em>
-	return
-}
-</pre>
-<p>
-The underscore in the expression means "nil assignment"; the value will be 
-thrown away. This is because we don't care whether the message is received
-or not.
-</p>
 </div>
 
 <div class="slide">
