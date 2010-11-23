@@ -8,20 +8,25 @@ import (
 	"io/ioutil"
 	"log"
 	"rand"
+	"regexp"
+	"strings"
 	"time"
 )
 
 var (
-	host = flag.String("host", "localhost:8080", "target host:port")
+	n      = flag.Int("n", 10, "magnitude of assault")
+	host   = flag.String("host", "localhost:8080", "target host:port")
+	hosts  []string
+	hostRe = regexp.MustCompile("http://[a-zA-Z0-9:.]+")
 )
 
 const (
-	fooUrl = "http://example.net/foobar"
+	fooUrl    = "http://example.net/foobar"
 	monDelay  = 1e9
-	getDelay  = 50e6
-	postDelay = 50e6
-	getters   = 100
-	posters   = 10
+	getDelay  = 100e6
+	getters   = 10
+	postDelay = 100e6
+	posters   = 1
 )
 
 var (
@@ -36,14 +41,17 @@ func keeper() {
 		r := urls[rand.Intn(len(urls))]
 		select {
 		case u := <-newURL:
-			urls = append(urls, u)
+			for _, h := range hosts {
+				u = hostRe.ReplaceAllString(u, "http://"+h)
+				urls = append(urls, u)
+			}
 		case randURL <- r:
 		}
 	}
 }
 
 func post() {
-	url := fmt.Sprintf("http://%s/add", *host)
+	url := fmt.Sprintf("http://%s/add", hosts[rand.Intn(len(hosts))])
 	r, err := http.PostForm(url, map[string]string{"url": fooUrl})
 	if err != nil {
 		log.Println("post:", err)
@@ -67,6 +75,10 @@ func get() {
 		return
 	}
 	defer r.Body.Close()
+	if _, err := ioutil.ReadAll(r.Body); err != nil {
+		log.Println("get:", err)
+		return
+	}
 	if r.StatusCode != 302 {
 		log.Println("get: wrong StatusCode:", r.StatusCode)
 	}
@@ -85,12 +97,13 @@ func loop(fn func(), delay int64) {
 
 func main() {
 	flag.Parse()
+	hosts = strings.Split(*host, ",", -1)
 	rand.Seed(time.Nanoseconds())
 	go keeper()
-	for i := 0; i < getters; i++ {
+	for i := 0; i < getters*(*n); i++ {
 		go loop(get, getDelay)
 	}
-	for i := 0; i < posters; i++ {
+	for i := 0; i < posters*(*n); i++ {
 		go loop(post, postDelay)
 	}
 	stat.Monitor(monDelay)
