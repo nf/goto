@@ -48,7 +48,7 @@ func NewURLStore(filename string) *URLStore {
 func (s *URLStore) Get(key, url *string) os.Error {
 	if u, ok := s.urls.Get(*key); ok {
 		*url = u
-		stat.In <- "get"
+		stat.In <- "store get"
 		return nil
 	}
 	return os.NewError("key not found")
@@ -66,7 +66,7 @@ func (s *URLStore) Put(url, key *string) os.Error {
 	s.urls.Set(*key, *url)
 	s.mu.Unlock()
 	_ = s.dirty <- true
-	stat.In <- "put"
+	stat.In <- "store put"
 	return nil
 }
 
@@ -114,8 +114,8 @@ func NewProxyStore(addr string) *ProxyStore {
 
 func (s *ProxyStore) Get(key, url *string) os.Error {
 	if u, ok := s.urls.Get(*key); ok {
-		stat.In <- "cache hit"
 		*url = u
+		stat.In <- "cache hit"
 		return nil
 	}
 	err := s.client.Call("Store.Get", key, url)
