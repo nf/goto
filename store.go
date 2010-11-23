@@ -122,7 +122,6 @@ func (s *ProxyStore) Get(key, url *string) os.Error {
 func (s *ProxyStore) Put(url, key *string) os.Error {
 	err := s.client.Call("Store.Put", url, key)
 	if err == nil {
-		stat.In <- "proxy put"
 		s.urls.Set(*key, *url)
 	}
 	return err
