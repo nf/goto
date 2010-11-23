@@ -1,0 +1,11 @@
+A stress-tester for goto
+
+To avoid exhausting source TCP ports (they tend to get stuck in TIME_WAIT),
+you'll need to set these sysctl values:
+
+Linux:
+	sudo sysctl net.ipv4.tcp_tw_recycle=1
+	sudo sysctl net.ipv4.tcp_tw_reuse=1 (may not be necessary)
+OS X:
+	sudo sysctl -w net.inet.tcp.msl=1000
+	

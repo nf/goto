@@ -14,10 +14,11 @@ import (
 )
 
 var (
-	n      = flag.Int("n", 10, "magnitude of assault")
-	host   = flag.String("host", "localhost:8080", "target host:port")
-	hosts  []string
-	hostRe = regexp.MustCompile("http://[a-zA-Z0-9:.]+")
+	n          = flag.Int("n", 10, "magnitude of assault")
+	host       = flag.String("host", "localhost:8080", "target host:port")
+	statServer = flag.String("stats", "", "stat server host")
+	hosts      []string
+	hostRe     = regexp.MustCompile("http://[a-zA-Z0-9:.]+")
 )
 
 const (
@@ -106,5 +107,5 @@ func main() {
 	for i := 0; i < posters*(*n); i++ {
 		go loop(post, postDelay)
 	}
-	stat.Monitor(monDelay)
+	stat.Monitor(*statServer)
 }

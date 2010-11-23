@@ -13,16 +13,10 @@ import (
 
 const saveTimeout = 60e9
 
-func init() {
-	go stat.Monitor(1e9)
-}
-
-
 type Store interface {
 	Put(url, key *string) os.Error
 	Get(key, url *string) os.Error
 }
-
 
 type URLStore struct {
 	mu       sync.Mutex
@@ -122,7 +116,6 @@ func (s *ProxyStore) Get(key, url *string) os.Error {
 	if err == nil {
 		s.urls.Set(*key, *url)
 	}
-	stat.In <- "cache miss"
 	return err
 }
 
