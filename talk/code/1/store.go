@@ -31,7 +31,7 @@ func (s *URLStore) Put(url string) (key string) {
 	for {
 		key = genKey(s.count)
 		s.count++
-		if _, ok := s.urls.Get(key); !ok {
+		if u := s.urls.Get(key); u == "" {
 			break
 		}
 	}
@@ -44,10 +44,7 @@ func (s *URLStore) Put(url string) (key string) {
 }
 
 func (s *URLStore) Get(key string) (url string) {
-	if u, ok := s.urls.Get(key); ok {
-		url = u
-	}
-	return
+	return s.urls.Get(key)
 }
 
 func (s *URLStore) load() os.Error {
@@ -84,11 +81,11 @@ func (m *URLMap) Set(key, url string) {
 	m.mu.Unlock()
 }
 
-func (m *URLMap) Get(key string) (string, bool) {
+func (m *URLMap) Get(key string) (url string) {
 	m.mu.RLock()
-	url, ok := m.urls[key]
+	url = m.urls[key]
 	m.mu.RUnlock()
-	return url, ok
+	return
 }
 
 func (m *URLMap) WriteTo(w io.Writer) os.Error {

@@ -40,7 +40,7 @@ func NewURLStore(filename string) *URLStore {
 
 func (s *URLStore) Get(key, url *string) os.Error {
 	log.Println("URLStore: Get", *key)
-	if u, ok := s.urls.Get(*key); ok {
+	if u := s.urls.Get(*key); u != "" {
 		*url = u
 		return nil
 	}
@@ -53,7 +53,7 @@ func (s *URLStore) Put(url, key *string) os.Error {
 	for {
 		*key = genKey(s.count)
 		s.count++
-		if _, ok := s.urls.Get(*key); !ok {
+		if u := s.urls.Get(*key); u == "" {
 			break
 		}
 	}
@@ -107,7 +107,7 @@ func NewProxyStore(addr string) *ProxyStore {
 }
 
 func (s *ProxyStore) Get(key, url *string) os.Error {
-	if u, ok := s.urls.Get(*key); ok {
+	if u := s.urls.Get(*key); u != "" {
 		*url = u
 		log.Println("ProxyStore: Get cache hit", *key)
 		return nil
@@ -145,11 +145,11 @@ func (m *URLMap) Set(key, url string) {
 	m.mu.Unlock()
 }
 
-func (m *URLMap) Get(key string) (string, bool) {
+func (m *URLMap) Get(key string) (url string) {
 	m.mu.RLock()
-	url, ok := m.urls[key]
+	url = m.urls[key]
 	m.mu.RUnlock()
-	return url, ok
+	return
 }
 
 func (m *URLMap) WriteTo(w io.Writer) os.Error {
