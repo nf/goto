@@ -16,7 +16,7 @@ import (
 var (
 	n          = flag.Int("n", 10, "magnitude of assault")
 	host       = flag.String("host", "localhost:8080", "target host:port")
-	statServer = flag.String("stats", "", "stat server host")
+	statServer = flag.String("stats", "localhost:8090", "stat server host")
 	hosts      []string
 	hostRe     = regexp.MustCompile("http://[a-zA-Z0-9:.]+")
 )
@@ -65,7 +65,7 @@ func post() {
 		return
 	}
 	newURL <- string(b)
-	stat.In <- "post"
+	stat.In <- "put"
 }
 
 func get() {
@@ -107,5 +107,6 @@ func main() {
 	for i := 0; i < posters*(*n); i++ {
 		go loop(post, postDelay)
 	}
+	stat.Process = "bench"
 	stat.Monitor(*statServer)
 }
