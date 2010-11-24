@@ -787,7 +787,7 @@ The <code>foo</code> function runs in a newly created goroutine, while
 <code>bar</code> runs in the main goroutine.
 </p>
 <p>
-Memory is shared between goroutines, like many popular threading models.
+Memory is shared between goroutines, like in many popular threading models.
 </p>
 <p>
 Goroutines are cheaper to create than operating system threads.
@@ -862,7 +862,7 @@ Channels underpin the Go philosophy to concurrent programming:
 Do not communicate by sharing memory; instead, share memory by communicating.
 </i></p>
 <p>
-Like map types, channels must be initialized with <code>make</code>:
+Like maps, channels must be initialized with <code>make</code>:
 </p>
 <pre>
 ch := make(chan int) // a channel of ints
@@ -871,39 +871,19 @@ ch := make(chan int) // a channel of ints
 Communication is expressed using the "channel operator", <code>&lt;-</code> :
 <p>
 <pre>
-ch &lt;- 7   // sending the int 7 to the channel
+ch &lt;- 7   // send the int 7 to the channel
 
-i := &lt;-ch // receiving an int from the channel
+i := &lt;-ch // receive an int from the channel
 </pre>
 </div>
 
 <div class="slide">
 <h1>Channels: an aside</h1>
-<pre>
-func foo(ch chan int) {
-	<span>// some computation resulting in i</span>
-	ch &lt;- i
-}
-
-func main() {
-	ch := make(chan int)
-	go foo(ch)
-	i := &lt;-ch
-}
-</pre>
 <p>
-In this example, the main goroutine will block until the receive from
-<code>ch</code> is ready.
+Channel send/receive operations typically block until the other side is ready.
+Channels can be either buffered or unbuffered.
+Sends to a buffered channel will not block until the buffer is full.
 </p>
-<p>
-That's because this channel is unbuffered. For an unbuffered
-send/receive to occur, both the sending and receiving sides must be ready.
-This property can be exploited to provide a powerful synchronization mechanism.
-</p>
-</div>
-
-<div class="slide">
-<h1>Channels: an aside</h1>
 <p>
 Buffered channels are initialized by specifying the buffer size as the 
 second argument to <code>make</code>:
@@ -912,7 +892,6 @@ second argument to <code>make</code>:
 ch := make(chan int, 10)
 </pre>
 <p>
-Sends to a buffered channel will not block until the buffer is full.
 Non-blocking sends are performed by treating the send statement as
 an expression:
 </p>
@@ -990,9 +969,8 @@ func (s *URLStore) Put(url string) (key string) {
 }
 </pre>
 <p>
-The underscore in the expression means "nil assignment"; the value will be 
-thrown away. This is because we don't care whether the message is received
-or not.
+The <code>_</code> is a write-only variable; the value will be thrown away.
+We don't care whether the message is received or not.
 </p>
 </div>
 
