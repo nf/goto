@@ -107,6 +107,6 @@ func main() {
 	for i := 0; i < posters*(*n); i++ {
 		go loop(post, postDelay)
 	}
-	stat.Process = "bench"
+	stat.Process = "!bench"
 	stat.Monitor(*statServer)
 }
