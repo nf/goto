@@ -3,6 +3,7 @@ package main
 import (
 	"gob"
 	"io"
+	"log"
 	"os"
 	"sync"
 	"time"
@@ -72,7 +73,7 @@ func (s *URLStore) save() os.Error {
 func (s *URLStore) saveLoop() {
 	for {
 		<-s.dirty
-		println("save")
+		log.Println("Saving")
 		s.save()
 		time.Sleep(saveTimeout)
 	}
