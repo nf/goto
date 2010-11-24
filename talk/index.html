@@ -456,6 +456,9 @@ represents HTTP code 302 ("Found").
 <li><a href="https://github.com/nf/goto/tree/master/talk/code/0/">https://github.com/nf/goto/tree/master/talk/code/0/</a></li>
 </ul>
 <p>
+<img src="structure.png">
+</p>
+<p>
 The <code>http</code> package uses Go's concurrency features 
 "behind the scenes". We will use goroutines and channels explicitly later.
 </p>
@@ -1063,7 +1066,7 @@ And substitute <code>*hostname</code> in the <code>Add</code> handler:
 
 <div class="slide">
 <h1>One more thing...</h1>
-<img src="diagram.png" style="float: right;">
+<img src="balancer.png" style="float: right;">
 <p>
 So far we have a program that runs as a single process. But a single process
 running on one machine can only serve so many concurrent requests.
