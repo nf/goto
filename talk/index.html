@@ -46,6 +46,24 @@
 </div>
 
 <div class="slide">
+<h1>This talk</h1>
+<p>
+This talk will cover the complete development of a simple web application.
+</p>
+<p>
+There's a lot to cover, so we'll move pretty fast.
+</p>
+<p>
+If you're new to Go there may be some syntax you don't understand.
+The important thing is to get a feel for what the program does,
+rather than exactly how it does it.
+</p>
+<p>
+These slides are available at <a href="http://wh3rd.net/practical-go/">http://wh3rd.net/practical-go/</a> - you may want to follow along.
+</p>
+</div>
+
+<div class="slide">
 <h1>Let's write a Go program</h1>
 <h3>goto: A URL Shortener</h3>
 <p>Goto is a web service (HTTP) that does two things:</p>
@@ -455,6 +473,9 @@ represents HTTP code 302 ("Found").
 The <code>http</code> package uses Go's concurrency features 
 "behind the scenes". We will use goroutines and channels explicitly later.
 </p>
+<p class="eg">
+These slides are available at <a href="http://wh3rd.net/practical-go/">http://wh3rd.net/practical-go/</a>
+</p>
 </div>
 
 <div class="slide">
@@ -743,6 +764,9 @@ var store = NewURLStore(<em>"store.gob"</em>)
 <ul>
 <li><a href="https://github.com/nf/goto/tree/master/talk/code/1/">https://github.com/nf/goto/tree/master/talk/code/1/</a></li>
 </ul>
+<p class="eg">
+These slides are available at <a href="http://wh3rd.net/practical-go/">http://wh3rd.net/practical-go/</a>
+</p>
 </div>
 
 <div class="slide">
@@ -997,6 +1021,9 @@ func NewURLStore(filename string) *URLStore {
 <ul>
 <li><a href="https://github.com/nf/goto/tree/master/talk/code/2/">https://github.com/nf/goto/tree/master/talk/code/2/</a></li>
 </ul>
+<p class="eg">
+These slides are available at <a href="http://wh3rd.net/practical-go/">http://wh3rd.net/practical-go/</a>
+</p>
 </div>
 
 <div class="slide">
@@ -1317,6 +1344,9 @@ Now we can watch requests being passed from the slave to the master.
 But there's something missing: the slave must cache the data it 
 gets from the master, otherwise it provides no benefit.
 </p>
+<p class="eg">
+These slides are available at <a href="http://wh3rd.net/practical-go/">http://wh3rd.net/practical-go/</a>
+</p>
 </div>
 
 <div class="slide">
@@ -1392,10 +1422,13 @@ Now we can launch a master and several slaves, and stress-test the slaves.
 <ul>
 <li><a href="https://github.com/nf/goto/tree/master/talk/code/3/">https://github.com/nf/goto/tree/master/talk/code/3/</a></li>
 </ul>
+<p class="eg">
+These slides are available at <a href="http://wh3rd.net/practical-go/">http://wh3rd.net/practical-go/</a>
+</p>
 </div>
 
 <div class="slide">
-<h1>Additional concerns</h1>
+<h1>Exercises for the reader (or listener)</h1>
 <p>
 While this program does what we set out to do, there are a few ways it could
 be improved:
@@ -1413,6 +1446,9 @@ be improved:
     servers by key.
 <li>Deletion: to support deletion of shortened URLs, the interactions 
     bewteen master and slave would need to be made more complex.
+<li>Storage: rather than re-writing the whole database on each call to
+    <code>save</code>, it would be more efficient to write each new URL to
+    disk incrementally.
 </ul>
 </div>
 
@@ -1420,6 +1456,7 @@ be improved:
 <h1>Questions?</h1>
 <p>Andrew Gerrand</p>
 <p>adg@golang.org</p>
+<p>http://wh3rd.net/practical-go/</p>
 <p><img src="bumper640x360.png"></p>
 </div>
 
