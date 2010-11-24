@@ -25,7 +25,9 @@ func NewURLStore(filename string) *URLStore {
 		filename: filename,
 		dirty:    make(chan bool, 1),
 	}
-	s.load()
+	if err := s.load(); err != nil {
+		log.Println("URLStore:", err)
+	}
 	go s.saveLoop()
 	return s
 }
@@ -73,8 +75,10 @@ func (s *URLStore) save() os.Error {
 func (s *URLStore) saveLoop() {
 	for {
 		<-s.dirty
-		log.Println("Saving")
-		s.save()
+		log.Println("URLStore: saving")
+		if err := s.save(); err != nil {
+			log.Println("URLStore:", err)
+		}
 		time.Sleep(saveTimeout)
 	}
 }

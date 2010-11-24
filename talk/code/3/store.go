@@ -84,6 +84,7 @@ func (s *URLStore) save() os.Error {
 func (s *URLStore) saveLoop() {
 	for {
 		<-s.dirty
+		log.Println("URLStore: saving")
 		if err := s.save(); err != nil {
 			log.Println("URLStore:", err)
 		}

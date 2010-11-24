@@ -3,6 +3,7 @@ package main
 import (
 	"gob"
 	"io"
+	"log"
 	"os"
 	"sync"
 )
@@ -19,7 +20,9 @@ func NewURLStore(filename string) *URLStore {
 		urls:     NewURLMap(),
 		filename: filename,
 	}
-	s.load()
+	if err := s.load(); err != nil {
+		log.Println("URLStore:", err)
+	}
 	return s
 }
 
@@ -33,7 +36,9 @@ func (s *URLStore) Put(url string) (key string) {
 		}
 	}
 	s.urls.Set(key, url)
-	s.save()
+	if err := s.save(); err != nil {
+		log.Println("URLStore:", err)
+	}
 	s.mu.Unlock()
 	return
 }

@@ -77,7 +77,7 @@ u := m[1]
 v, present := m[2]
 <span>// v == "", present == false</span>
 </pre>
-<p>(*There are some restrictions on which types can be used as map keys.)
+<p>(*The keys must be commparable with ==.)</p>
 </div>
 
 <div class="slide">
@@ -164,8 +164,8 @@ func (m *URLMap) Get(key string) (string, bool) {
 <div class="slide">
 <h1>An initializer function</h1>
 <p>
-The <code>URLMap</code> struct contains a <code>map</code> type, which must be
-initialized with <code>make</code> before it can be used.
+The <code>URLMap</code> struct contains a <code>map</code> field,
+which must be initialized with <code>make</code> before it can be used.
 <pre>
 type URLMap struct {
 	urls map[string]string
@@ -705,7 +705,7 @@ implements the <code>Write</code> method and can therefore be used as an
 <h1>Persistent Storage: URLStore</h1>
 <p>
 Now we can make it <code>load</code> when initializing the
-<code>URLStore</code>, and <code>save</code> when a new URL is added.
+<code>URLStore</code>:
 </p>
 <pre>
 func NewURLStore(filename string) *URLStore {
@@ -713,15 +713,23 @@ func NewURLStore(filename string) *URLStore {
 		urls:     NewURLMap(),
 		filename: filename,
 	}
-	<em>s.load()</em>
+<em>	if err := s.load(); err != nil {
+		log.Println("URLStore:", err)
+	}</em>
 	return s
 }
 </pre>
+</div>
+<div class="slide">
+<h1>Persistent Storage: URLStore</h1>
+<p>And <code>save</code> when a new URL is added:</p>
 <pre>
 func (s *URLStore) Put(url string) (key string) {
 <span>	... (generate key)</span>
         s.urls.Set(key, url)
-<em>	s.save()</em>
+<em>	if err := s.save(); err != nil {
+		log.Println("URLStore:", err)
+	}</em>
 	s.mu.Unlock()
 	return
 }
@@ -797,7 +805,9 @@ const saveTimeout = 10e9 // 10 seconds in nanoseconds
 
 func (s *URLStore) saveLoop() {
 	for {
-		s.save()
+		if err := s.save(); err != nil {
+			log.Println("URLStore:", err)
+		}
 		time.Sleep(saveTimeout)
 	}
 }
@@ -815,7 +825,9 @@ func NewURLStore(filename string) *URLStore {
 		urls:     NewURLMap(),
 		filename: filename,
 	}
-	s.load()
+	if err := s.load(); err != nil {
+		log.Println("URLStore:", err)
+	}
 <em>	go s.saveLoop()</em>
 	return s
 }
@@ -947,7 +959,9 @@ Now we make <code>saveLoop</code> wait until a value is received from
 func (s *URLStore) saveLoop() {
 	for {
 <em>		<-s.dirty</em>
-		s.save()
+		if err := s.save(); err != nil {
+			log.Println("URLStore:", err)
+		}
 		time.Sleep(saveTimeout)
 	}
 }
@@ -997,7 +1011,9 @@ func NewURLStore(filename string) *URLStore {
 		filename: filename,
 <em>		dirty:    make(chan bool, 1),</em>
 	}
-	s.load()
+	if err := s.load(); err != nil {
+		log.Println("URLStore:", err)
+	}
 	go s.saveLoop()
 	return s
 }
