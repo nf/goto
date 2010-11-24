@@ -20,37 +20,37 @@ sleep 1
 echo "Testing the master (n=1)"
 bench/bench -host=localhost:8080 -n=1 &
 pid=$!
-sleep 15
+read
 kill $pid
 
 echo "Testing the master (n=10)"
 bench/bench -host=localhost:8080 -n=10 &
 pid=$!
-sleep 15
+read
 kill $pid
 
 echo "Testing 1 slave (n=10)"
 bench/bench -host=localhost:8081 -n=10 &
 pid=$!
-sleep 15
+read
 kill $pid
 
 echo "Testing 2 slaves (n=10)"
 bench/bench -host=localhost:8081,localhost:8082 -n=10 &
 pid=$!
-sleep 15
+read
 kill $pid
 
 echo "Testing 3 slaves (n=10)"
 bench/bench -host=localhost:8081,localhost:8082,localhost:8083 -n=10 &
 pid=$!
-sleep 15
+read
 kill $pid
 
 echo "Testing 3 slaves (n=20)"
 bench/bench -host=localhost:8081,localhost:8082,localhost:8083 -n=20 &
 pid=$!
-sleep 30 
+read
 kill $pid
 
 echo "Shutting down"
@@ -59,4 +59,3 @@ kill $master_pid
 kill $slave1_pid
 kill $slave2_pid
 kill $slave3_pid
-echo "Done"

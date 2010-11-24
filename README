@@ -1,3 +1,17 @@
 Goto - A URL shortening service
 
-This code is the basis of the presentation 'Practical Go Programming'.
+This code is the basis of the presentation 'Practical Go Programming',
+available in the talk/ directory.
+
+The accompanying code samples are in talk/code.
+
+The code in the main directory is the full-featured URL shortener, complete
+with bindings to github.com/nf/stat, a statistics-collection library.
+
+There is a stress tester in bench/, which also depends on stat.
+
+The demo.sh script launches the stats server (stat must be checked out and
+built in ../stat), 4 goto servers (3 slaves and 1 master), and several
+iterations of the stress-tester.
+
+Run it and visit http://localhost:8090/ for a pretty graph.
