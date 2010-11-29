@@ -22,19 +22,8 @@
 <div class="slide">
 <h1>What is Go?</h1>
 <img src="gopher.png" style="float: right;">
-<p>A general-purpose programming language.</p>
-<p>Go is:</p>
-<ul class="contrasts">
-<li>Small <em>beautiful</em></li>
-<li>Simple <em>easy</em></li>
-<li>Fast <em>powerful</em></li>
-<li>Fun <em>wheee!</em></li>
-<li>One year old</li>
-</ul>
-</div>
-
-<div class="slide">
-<h1>Go's killer features</h1>
+<p>Go is a general-purpose programming language.</p>
+<p>Go's killer features:</p>
 <ul class="contrasts">
 <li>Emphasis on simplicity; <em>easy to learn</em></li>
 <li>Memory managed and syntactically lightweight; <em>easy to use</em></li>
@@ -107,7 +96,7 @@ u := m[1]
 v, present := m[2]
 <span>// v == "", present == false</span>
 </pre>
-<p>(*The keys must be commparable with ==.)</p>
+<p>(*The keys must be comparable with <code>==</code>.)</p>
 </div>
 
 <div class="slide">
@@ -331,6 +320,9 @@ func NewURLStore() *URLStore {
 	return &URLStore{urls: NewURLMap()}
 }
 </pre>
+<p>
+<img src="urlstore.png">
+</p>
 </div>
 
 <!-- show the audience the complete store.go code now -->
@@ -1039,7 +1031,7 @@ These slides are available at <a href="http://wh3rd.net/practical-go/">http://wh
 </div>
 
 <div class="slide">
-<h1>Command-line flags</h1>
+<h1>An aside: Command-line flags</h1>
 <p>
 Go's <code>flag</code> package makes it easy to handle command-line flags.
 Let's use it to replace the constants we have littered through our code so
@@ -1064,7 +1056,7 @@ var (
 </div>
 
 <div class="slide">
-<h1>Command-line flags</h1>
+<h1>An aside: Command-line flags</h1>
 <p>
 Then we can add <code>flag.Parse()</code> to the <code>main</code> function,
 and instantiate the <code>URLStore</code> after the flags have been parsed
@@ -1118,7 +1110,7 @@ To serve, define a type with the methods you want to make accesible to RPC:
 </p>
 <pre>
 type Args struct { A, B int }
-type Arith int
+type Arith struct{}
 func (t *Arith) Multiply(args *Args, reply *int) os.Error {
 	*reply = args.A * args.B
 	return nil
@@ -1133,6 +1125,9 @@ rpc.Register(new(Arith))
 rpc.HandleHTTP()
 http.ListenAndServe(":8080", nil)
 </pre>
+<p>
+This makes the <code>Multiply</code> method available as an RPC call under the name
+<code>"Arith.Multiply"</code>.
 </div>
 
 <div class="slide">
@@ -1147,7 +1142,7 @@ if err != nil {
 }
 </pre>
 <p>
-Set up args and reply values, and make the RPC <code>Call</code>:
+Set up arguments and reply values, and make the RPC <code>Call</code>:
 </p>
 <pre>
 args := Args{7,8}
