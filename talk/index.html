@@ -101,11 +101,12 @@ v, present := m[2]
 
 <div class="slide">
 <h1>Data structures</h1>
-<p>We specify the <code>URLMap</code> type, Goto's fundamental data structure:</p>
+<p>We specify the <code>URLStore</code> type,
+Goto's fundamental data structure:</p>
 <pre>
-type URLMap map[string]string
+type URLStore map[string]string
 
-m := make(URLMap)
+m := make(URLStore)
 </pre>
 <p>To store the mapping of <code>http://goto/a</code> to <code>http://google.com/</code> in <code>m</code>:</p>
 <pre>
@@ -119,7 +120,7 @@ This has a shortcoming: Go's <code>map</code> type is not thread-safe.
 </p>
 <p>
 Goto will serve many requests concurrently, so we must make our 
-<code>URLMap</code> type safe to access from separate threads.
+<code>URLStore</code> type safe to access from separate threads.
 </p>
 </div>
 
@@ -130,14 +131,14 @@ To protect the <code>map</code> type from being modified while it is being
 read, we must add a lock to the data structure.
 </p>
 <p>
-Changing the type definition, we make <code>URLMap</code> a <code>struct</code>
-type with two fields: the <code>map</code> and a <code>RWMutex</code> from
-the <code>sync</code> package.
+Changing the type definition, we make <code>URLStore</code> a
+<code>struct</code> type with two fields: the <code>map</code> and 
+a <code>RWMutex</code> from the <code>sync</code> package.
 </p>
 <pre>
 import "sync"
 
-type URLMap struct {
+type URLStore struct {
 	urls map[string]string
 	mu   sync.RWMutex
 }
@@ -152,41 +153,105 @@ take the write lock (to the exclusion of all readers).
 <div class="slide">
 <h1>Setter and Getter methods</h1>
 <p>
-We must now interact with the <code>URLMap</code> through <code>Set</code>
+We must now interact with the <code>URLStore</code> through <code>Set</code>
 and <code>Get</code> methods.
 </p>
-<p>
-The <code>Set</code> method takes the write lock, and updates the url map:
-</p>
-<pre>
-func (m *URLMap) Set(key, url string) {
-	m.mu.Lock()
-	m.urls[key] = url
-	m.mu.Unlock()
-}       
-</pre>
 <p>
 The <code>Get</code> method takes the read lock with <code>RLock</code>, and
 returns the URL as a string. If the key is present in the map, the
 zero value for the string type (an empty string) will be returned.
 </p>
 <pre>
-func (m *URLMap) Get(key string) (url string) {
-	m.mu.RLock()
-	url = m.urls[key]
-	m.mu.RUnlock()
-        return
+func (s *URLStore) Get(key string) string {
+	s.mu.RLock()
+	url := s.urls[key]
+	s.mu.RUnlock()
+        return url
 }
+</pre>
+<p>
+The <code>Set</code> method takes the write lock and updates the url map.
+If the key is already present a boolean <code>false</code> value is
+returned and the map is not updated.
+</p>
+<pre>
+func (s *URLStore) Set(key, url string) bool {
+	s.mu.Lock()
+	_, present := s.urls[key]
+	if present {
+		s.mu.Unlock()
+		return false
+	}
+	s.urls[key] = url
+	s.mu.Unlock()
+	return true
+}       
+</pre>
+</div>
+
+<div class="slide">
+<h1>Defer: an aside</h1>
+<p>
+A <code>defer</code> statement pushes a function call onto a list.
+The list of saved calls is executed after the surrounding function returns.
+Defer is commonly used to simplify functions that perform various clean-up
+actions.
+</p>
+<p>
+For example, this function will print "Hello" and then "World":
+<pre>
+func foo() {
+	defer fmt.Println("World")
+	fmt.Println("Hello")
+}
+</pre>
+<p>
+We can use <code>defer</code> to simplify the <code>Set</code> and
+<code>Get</code> methods.
+</p>
+<p class="eg">
+There's more to defer.
+See the "<a href="http://blog.golang.org/2010/08/defer-panic-and-recover.html">Defer, Panic, and Recover</a>" blog post for an in-depth discussion.
+</p>
+</div>
+
+<div class="slide">
+<h1>Setter and Getter methods</h1>
+<p>
+The <code>Get</code> method can avoid using the local <code>url</code>
+variable and return the map value directly:
+</p>
+<pre>
+func (s *URLStore) Get(key string) string {
+	s.mu.RLock()
+	<em>defer</em> s.mu.RUnlock()
+	return s.urls[key]
+}
+</pre>
+<p>
+And the logic for <code>Set</code> becomes clearer:
+</p>
+<pre>
+func (s *URLStore) Set(key, url string) bool {
+	s.mu.Lock()
+	<em>defer</em> s.mu.Unlock()
+	_, present := s.urls[key]
+	if present {
+		return false
+	}
+	s.urls[key] = url
+	return true
+}       
 </pre>
 </div>
 
 <div class="slide">
 <h1>An initializer function</h1>
 <p>
-The <code>URLMap</code> struct contains a <code>map</code> field,
+The <code>URLStore</code> struct contains a <code>map</code> field,
 which must be initialized with <code>make</code> before it can be used.
 <pre>
-type URLMap struct {
+type URLStore struct {
 	urls map[string]string
 	mu   sync.RWMutex
 }
@@ -196,27 +261,27 @@ Go doesn't have constructors. Instead, the convention is to write a function
 named <code>NewXXX</code> that returns an intialized instance of the type.
 </p>
 <pre>
-func NewURLMap() *URLMap {
-	return &URLMap{urls: make(map[string]string)}
+func NewURLStore() *URLStore {
+	return &URLStore{urls: make(map[string]string)}
 }
 </pre>
 </div>
 
 <div class="slide">
-<h1>Using URLMap</h1>
+<h1>Using URLStore</h1>
 <p>
 Creating an instance:
 </p>
 <pre>
-m := NewURLMap()
+s := NewURLStore()
 </pre>
 <p>Setting a URL by key:</p>
 <pre>
-m.Set("a", "http://google.com")
+s.Set("a", "http://google.com")
 </pre>
 <p>Getting a URL by key:</p>
 <pre>
-if url := m.Get("a"); url != "" {
+if url := s.Get("a"); url != "" {
 	// redirect to url
 } else {
 	// key not found
@@ -225,104 +290,36 @@ if url := m.Get("a"); url != "" {
 </div>
 
 <div class="slide">
-<h1>The URLStore</h1>
+<h1>Shortening URLs</h1>
 <p>
-Let's create an object to manage the basic functionality of our service.
+We have the <code>Get</code> method for retrieving URLs.
+Let's create a <code>Put</code> method that takes a URL,
+stores the URL in the map under a corresponding key, and returns the key.
 </p>
-<pre>
-type URLStore struct{}
-</pre>
-<p>
-The <code>URLStore</code> has two methods:
-</p>
-<ul>
-<li><code>Put</code> takes a URL, generates its short key, and returns the key.
-<pre>
-func (s *URLStore) Put(url string) (key string)
-</pre>
-<li><code>Get</code> takes a short key and returns its associated URL.
-<pre>
-func (s *URLStore) Get(key string) (url string)
-</pre>
-</ul>
-</div>
-
-<div class="slide">
-<h1>URLStore.Put</h1>
 <pre>
 type URLStore struct {
-	urls  *URLMap
+	<span>...</span>
 	count int
 }
 
-func (s *URLStore) Put(url string) (key string) {
+func (s *URLStore) Put(url string) string {
         for {
-                key = genKey(s.count)
+                key := genKey(s.count)
                 s.count++
-                if u := s.urls.Get(key); u == "" {
-                        break
+                if ok := s.Set(key, url); ok {
+                        return key
                 }
         }
-        s.urls.Set(key, url)
-	return
+	return ""
 }
 </pre>
 <p>
 The <code>genKey</code> function takes an integer and returns a corresponding
-alphanumeric key.
-</p>
-<p>
-There's a race condition: two clients calling <code>Put</code> simultaneously
-may be given the same key.
-</p>
-</div>
-
-<div class="slide">
-<h1>URLStore.Put - now thread-safe</h1>
-<pre>
-type URLStore struct {
-<em>	mu    sync.Mutex</em>
-	urls  *URLMap
-	count int
-}
-
-func (s *URLStore) Put(url string) (key string) {
-<em>	s.mu.Lock()</em>
-        for {
-                key = genKey(s.count)
-                s.count++
-                if u := s.urls.Get(key); u == "" {
-                        break
-                }
-        }
-        s.urls.Set(key, url)
-<em>	s.mu.Unlock()</em>
-	return
-}
-</pre>
-</div>
-
-<div class="slide">
-<h1>URLStore - the remaining bits</h1>
-<p>
-The <code>Get</code> method:
+alphanumeric key:
 </p>
 <pre>
-func (s *URLStore) Get(key string) (url string) {
-	return s.urls.Get(key)
-}
+func genKey(n int) string { <span>/* implementation omitted */ </span> }
 </pre>
-<p>
-Finally, the initializer function:
-</p>
-<pre>
-func NewURLStore() *URLStore {
-	return &URLStore{urls: NewURLMap()}
-}
-</pre>
-<p>
-<img src="urlstore.png">
-</p>
 </div>
 
 <!-- show the audience the complete store.go code now -->
@@ -470,9 +467,7 @@ represents HTTP code 302 ("Found").
 <ul>
 <li><a href="https://github.com/nf/goto/tree/master/talk/code/0/">https://github.com/nf/goto/tree/master/talk/code/0/</a></li>
 </ul>
-<p>
-<img src="structure.png">
-</p>
+<!-- TODO: new diagram -->
 <p>
 The <code>http</code> package uses Go's concurrency features 
 "behind the scenes". We will use goroutines and channels explicitly later.
@@ -601,28 +596,6 @@ func (m *URLMap) ReadFrom(r io.Reader) os.Error {
 </div>
 
 <div class="slide">
-<h1>Defer: an aside</h1>
-<p>
-A <code>defer</code> statement pushes a function call onto a list.
-The list of saved calls is executed after the surrounding function returns.
-Defer is commonly used to simplify functions that perform various clean-up
-actions.
-</p>
-<p>
-For example, this function will print "Hello" and then "World":
-<pre>
-func foo() {
-	defer fmt.Println("World")
-	fmt.Println("Hello")
-}
-</pre>
-<p>
-We can use <code>defer</code> to simplify the <code>WriteTo</code> and
-<code>ReadFrom</code> methods.
-</p>
-</div>
-
-<div class="slide">
 <h1>Persistent Storage: URLMap</h1>
 <pre>
 func (m *URLMap) WriteTo(w io.Writer) os.Error {
@@ -642,10 +615,6 @@ func (m *URLMap) ReadFrom(r io.Reader) os.Error {
 <p>
 Using <code>defer</code>, we remove the need for the local variable
 <code>err</code>. The mutexes are unlocked <em>after</em> the return statements.
-</p>
-<p class="eg">
-There's more to defer.
-See the "<a href="http://blog.golang.org/2010/08/defer-panic-and-recover.html">Defer, Panic, and Recover</a>" blog post for an in-depth discussion.
 </p>
 </div>
 
