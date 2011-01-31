@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"github.com/nf/stat"
 	"gob"
 	"log"
@@ -10,32 +11,38 @@ import (
 	"time"
 )
 
-const saveTimeout = 60e9
+const (
+	saveTimeout     = 10e9
+	saveQueueLength = 1000
+)
 
 type Store interface {
 	Put(url, key *string) os.Error
 	Get(key, url *string) os.Error
 }
 
+
 type URLStore struct {
-	mu       sync.RWMutex
-	urls     map[string]string
-	count    int
-	filename string
-	dirty    chan bool
+	mu    sync.RWMutex
+	urls  map[string]string
+	count int
+	save  chan record
+}
+
+type record struct {
+	Key, URL string
 }
 
 func NewURLStore(filename string) *URLStore {
 	s := &URLStore{
-		urls:     make(map[string]string),
-		filename: filename,
-		dirty:    make(chan bool, 1),
+		urls: make(map[string]string),
+		save: make(chan record),
 	}
 	if filename != "" {
-		if err := s.load(); err != nil {
+		if err := s.load(filename); err != nil {
 			log.Println("URLStore:", err)
 		}
-		go s.saveLoop()
+		go s.saveLoop(filename)
 	}
 	return s
 }
@@ -70,44 +77,63 @@ func (s *URLStore) Put(url, key *string) os.Error {
 			break
 		}
 	}
-	if s.filename != "" {
-		_ = s.dirty <- true
-	}
+	s.save <- record{*key, *url}
 	return nil
 }
 
 
-func (s *URLStore) load() os.Error {
-	f, err := os.Open(s.filename, os.O_RDONLY, 0)
+func (s *URLStore) load(filename string) os.Error {
+	f, err := os.Open(filename, os.O_RDONLY, 0)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	d := gob.NewDecoder(f)
-	return d.Decode(&s.urls)
-}
-
-func (s *URLStore) save() os.Error {
-	f, err := os.Open(s.filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	e := gob.NewEncoder(f)
-	return e.Encode(s.urls)
-}
-
-func (s *URLStore) saveLoop() {
+	b := bufio.NewReader(f)
+	d := gob.NewDecoder(b)
 	for {
-		<-s.dirty
-		if err := s.save(); err != nil {
-			log.Println("URLStore:", err)
+		var r record
+		if err := d.Decode(&r); err == os.EOF {
+			break
+		} else if err != nil {
+			return err
 		}
-		time.Sleep(saveTimeout)
+		if err = s.Set(&r.Key, &r.URL); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *URLStore) saveLoop(filename string) {
+	f, err := os.Open(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	if err != nil {
+		log.Println("URLStore:", err)
+		return
+	}
+	defer f.Close()
+	b := bufio.NewWriter(f)
+	e := gob.NewEncoder(b)
+	t := time.NewTicker(saveTimeout)
+	queue := make([]record, 0, saveQueueLength)
+	for {
+		force := false
+		select {
+		case r := <-s.save:
+			queue = append(queue, r)
+		case <-t.C:
+			force = true
+		}
+		if len(queue) >= saveQueueLength || force && len(queue) > 0 {
+			for _, r := range queue {
+				if err := e.Encode(r); err != nil {
+					log.Println("URLStore:", err)
+				}
+			}
+			if err := b.Flush(); err != nil {
+				log.Println("URLStore:", err)
+			}
+			queue = queue[:0]
+		}
 	}
 }
 
@@ -137,7 +163,7 @@ func (s *ProxyStore) Get(key, url *string) os.Error {
 }
 
 func (s *ProxyStore) Put(url, key *string) os.Error {
-	if err := s.client.Call("Store.Put", url, key); err != nil{
+	if err := s.client.Call("Store.Put", url, key); err != nil {
 		return err
 	}
 	s.urls.Set(key, url)
