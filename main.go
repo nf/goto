@@ -14,7 +14,7 @@ var (
 	hostname   = flag.String("host", "localhost:8080", "http host name")
 	masterAddr = flag.String("master", "", "RPC master address")
 	rpcEnabled = flag.Bool("rpc", false, "enable RPC server")
-	statServer = flag.String("stats", "localhost:8090", "stat server address")
+	statServer = flag.String("stats", "", "stat server address")
 )
 
 var store Store
@@ -30,8 +30,10 @@ func main() {
 		rpc.RegisterName("Store", store)
 		rpc.HandleHTTP()
 	}
-	stat.Process = *listenAddr
-	go stat.Monitor(*statServer)
+	if *statServer != "" {
+		stat.Process = *listenAddr
+		go stat.Monitor(*statServer)
+	}
 	http.HandleFunc("/", Redirect)
 	http.HandleFunc("/add", Add)
 	http.ListenAndServe(*listenAddr, nil)
