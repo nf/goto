@@ -723,17 +723,16 @@ Consider this pathological situation:
 </p>
 <ul>
 <li>Many clients attempt to add URLs simultaneously.
-<li>Each client must obtain the <code>URLStore</code> lock to perform a <code>Put</code>.
-<li>The <code>URLMap</code> is written to disk during each <code>Put</code>
-    (while the lock is held).
-<li>Therefore, the <i>n</i>th client must wait for the <code>URLMap</code>
-    to be written to disk <i>n</i>-1 times before its <code>Put</code> can 
-    complete.
+<li>Even though concurrent may update the map safely, the disk writes
+    may happen simultaneously. (Depending on your OS this may cause
+    corruption.)
+<li>Even if the writes do not collide, each client must wait for their
+    data to be written to disk before their <code>Put</code> will return.
+<li>A single write system call for each <code>Put</code> is inefficient.
 </ul>
 <p>
 To improve this situation we should decouple the <code>save</code> process 
-from the <code>Put</code> process, and only <code>save</code> the 
-<code>URLMap</code> periodically.
+from the <code>Put</code> process.
 </p>
 </div>
 
@@ -756,61 +755,6 @@ Memory is shared between goroutines, like in many popular threading models.
 <p>
 Goroutines are cheaper to create than operating system threads.
 </p>
-</div>
-
-<div class="slide">
-<h1>Saving on the side</h1>
-<p>
-Let's create a function that will run in its own goroutine, periodically saving
-the data store.
-</p>
-<pre>
-const saveTimeout = 10e9 // 10 seconds in nanoseconds
-
-func (s *URLStore) saveLoop() {
-	for {
-		if err := s.save(); err != nil {
-			log.Println("URLStore:", err)
-		}
-		time.Sleep(saveTimeout)
-	}
-}
-</pre>
-</div>
-
-<div class="slide">
-<h1>Saving on the side</h1>
-<p>
-We then need to launch the goroutine from <code>NewURLStore</code>:
-</p>
-<pre>
-func NewURLStore(filename string) *URLStore {
-	s := &URLStore{
-		urls:     NewURLMap(),
-		filename: filename,
-	}
-	if err := s.load(); err != nil {
-		log.Println("URLStore:", err)
-	}
-<em>	go s.saveLoop()</em>
-	return s
-}
-</pre>
-<p class="eg">
-(And we shouldn't forget to remove the call to <code>save</code> from the
-<code>Put</code> method.)
-</p>
-<div class="incremental">
-<p>
-But there's a problem with this approach: <code>save</code> will be called 
-regardless of whether the data store has been modified. This causes a lot of
-needless disk churn, and may become problematic as the data set grows.
-</p>
-<p>
-We need to send a signal to the <code>saveLoop</code> to tell it when
-the data needs to be saved.
-</p>
-</div>
 </div>
 
 <div class="slide">
@@ -844,6 +788,20 @@ i := &lt;-ch // receive an int from the channel
 <div class="slide">
 <h1>Channels: an aside</h1>
 <p>
+Communicating between goroutines:
+</p>
+<pre>
+func sum(x, y int, c chan int) {
+	c <- x + y
+}
+
+func main() {
+	c := make(chan int)
+	go sum(24, 18, c)
+	fmt.Println(<-c)
+}
+</pre>
+<p>
 Channel send/receive operations typically block until the other side is ready.
 Channels can be either buffered or unbuffered.
 Sends to a buffered channel will not block until the buffer is full.
@@ -855,22 +813,6 @@ second argument to <code>make</code>:
 <pre>
 ch := make(chan int, 10)
 </pre>
-<p>
-Non-blocking sends are performed by treating the send statement as
-an expression:
-</p>
-<pre>
-ok := ch <- 1
-<span>// ok == true if the send occurred</span>
-</pre>
-<p>
-Similarly, you can perform non-blocking reads by taking the second return
-value of the read:
-</p>
-<pre>
-i, ok := <-ch
-<span>// ok == true if a receive occurred</span>
-</pre>
 <p class="eg">
 See the blog posts "<a href="http://blog.golang.org/2010/07/share-memory-by-communicating.html">Share Memory by Communicating</a>" and "<a href="http://blog.golang.org/2010/09/go-concurrency-patterns-timing-out-and.html">Timing out, moving on</a>" for a detailed discussion of goroutines and channels.
 </p>
@@ -879,16 +821,31 @@ See the blog posts "<a href="http://blog.golang.org/2010/07/share-memory-by-comm
 <div class="slide">
 <h1>Saving on demand</h1>
 <p>
-We can use a channel of boolean values to tell <code>saveLoop</code> when
-the data structure is "dirty", and a <code>save</code> is required.
+Instead of making a function call to save each record to disk,
+let's have <code>Put</code> send to a buffered channel:
+</p>
+<pre>
+func (s *URLStore) Put(url string) string {
+        for {
+                key := genKey(s.count)
+                s.count++
+                if ok := s.Set(key, url); ok {
+                        <em>s.save <- record{key, url}</em>
+                        return key
+                }
+        }
+        panic("shouldn't get here")
+}
+</pre>
+<p>
+This necessitates a new field on <code>URLStore</code> named <code>save</code>:
 </p>
 <pre>
 type URLStore struct {
-	mu       sync.Mutex
-	urls     *URLMap
-	count    int
-	filename string
-<em>	dirty    chan bool</em>
+        urls  map[string]string
+        mu    sync.RWMutex
+        count int
+        <em>save  chan record</em>
 }
 </pre>
 </div>
@@ -896,71 +853,54 @@ type URLStore struct {
 <div class="slide">
 <h1>Saving on demand</h1>
 <p>
-Now we make <code>saveLoop</code> wait until a value is received from
-<code>dirty</code> before saving.
+At the other end of the <code>save</code> channel we must have a receiver.
+</p>
+<p>
+This new method, <code>saveLoop</code>, will run in a separate goroutine
+receiving <code>record</code> values and writing them to a file.
+</p>
 <pre>
-func (s *URLStore) saveLoop() {
-	for {
-<em>		<-s.dirty</em>
-		if err := s.save(); err != nil {
-			log.Println("URLStore:", err)
-		}
-		time.Sleep(saveTimeout)
-	}
+func (s *URLStore) saveLoop(filename string) {
+        f, err := os.Open(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+        if err != nil {
+                log.Println("URLStore:", err)
+                return
+        }
+        e := gob.NewEncoder(f)
+        for {
+		r := <-save
+		if err := e.Encode(r); err != nil {
+                        log.Println("URLStore:", err)
+                }
+        }
 }
 </pre>
-<p>
-Note that while <code>dirty</code> carries boolean values
-(<code>true</code> or <code>false</code>), 
-we're not actually concerned with the value itself.
-It's the presence of <i>any</i> value, true or false, that tells
-<code>saveLoop</code> when to <code>save</code>.
-</p>
 </div>
 
 <div class="slide">
 <h1>Saving on demand</h1>
 <p>
-We add a non-blocking send to the <code>Put</code> method:
+We need to modify the <code>NewURLStore</code> function to launch the
+<code>saveLoop</code> goroutine (and remove the now-unnecessary file opening
+code):
 </p>
 <pre>
-func (s *URLStore) Put(url string) (key string) {
-<span>	... (generate key)</span>
-        s.urls.Set(key, url)
-	s.mu.Unlock()
-<em>	_ = s.dirty <- true</em>
-	return
-}
-</pre>
-<p>
-The <code>_</code> is a write-only variable; the value will be thrown away.
-We don't care whether the message is received or not.
-</p>
-</div>
+const saveQueueLength = 1000
 
-<div class="slide">
-<h1>Saving on demand</h1>
-<p>
-We make <code>dirty</code> a buffered channel with space for just one value,
-so that if a send occurs while <code>saveLoop</code> is busy 
-(either saving or sleeping) the value will still be received when 
-<code>saveLoop</code> becomes ready.
-</p>
-<pre>
 func NewURLStore(filename string) *URLStore {
-	s := &URLStore{
-		urls:     NewURLMap(),
-		filename: filename,
-<em>		dirty:    make(chan bool, 1),</em>
-	}
-	if err := s.load(); err != nil {
-		log.Println("URLStore:", err)
-	}
-	go s.saveLoop()
-	return s
+        s := &URLStore{
+                urls: make(map[string]string),
+                <em>save: make(chan record, saveQueueLength),</em>
+        }
+        <em>if err := s.load(filename); err != nil {
+                log.Println("URLStore:", err)
+        }
+        go s.saveLoop(filename)</em>
+        return s
 }
 </pre>
 </div>
+
 
 <div class="slide">
 <h1>Demonstration</h1>

@@ -2,117 +2,94 @@ package main
 
 import (
 	"gob"
-	"io"
 	"log"
 	"os"
 	"sync"
-	"time"
 )
 
-const saveTimeout = 10e9
+const saveQueueLength = 1000
 
 type URLStore struct {
-	mu       sync.Mutex
-	urls     *URLMap
-	count    int
-	filename string
-	dirty    chan bool
+	urls  map[string]string
+	mu    sync.RWMutex
+	count int
+	save  chan record
+}
+
+type record struct {
+	Key, URL string
 }
 
 func NewURLStore(filename string) *URLStore {
 	s := &URLStore{
-		urls:     NewURLMap(),
-		filename: filename,
-		dirty:    make(chan bool, 1),
+		urls: make(map[string]string),
+		save: make(chan record, saveQueueLength),
 	}
-	if err := s.load(); err != nil {
+	if err := s.load(filename); err != nil {
 		log.Println("URLStore:", err)
 	}
-	go s.saveLoop()
+	go s.saveLoop(filename)
 	return s
 }
 
-func (s *URLStore) Put(url string) (key string) {
+func (s *URLStore) Get(key string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.urls[key]
+}
+
+func (s *URLStore) Set(key, url string) bool {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, present := s.urls[key]; present {
+		return false
+	}
+	s.urls[key] = url
+	return true
+}
+
+func (s *URLStore) Put(url string) string {
 	for {
-		key = genKey(s.count)
+		key := genKey(s.count)
 		s.count++
-		if u := s.urls.Get(key); u == "" {
-			break
+		if ok := s.Set(key, url); ok {
+			s.save <- record{key, url}
+			return key
 		}
 	}
-	s.urls.Set(key, url)
-	s.mu.Unlock()
-	_ = s.dirty <- true
-	return
+	panic("shouldn't get here")
 }
 
-func (s *URLStore) Get(key string) (url string) {
-	return s.urls.Get(key)
-}
-
-func (s *URLStore) load() os.Error {
-	f, err := os.Open(s.filename, os.O_RDONLY, 0)
+func (s *URLStore) load(filename string) os.Error {
+	f, err := os.Open(filename, os.O_RDONLY, 0)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	return s.urls.ReadFrom(f)
-}
-
-func (s *URLStore) save() os.Error {
-	f, err := os.Open(s.filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return s.urls.WriteTo(f)
-}
-
-func (s *URLStore) saveLoop() {
+	d := gob.NewDecoder(f)
 	for {
-		<-s.dirty
-		log.Println("URLStore: saving")
-		if err := s.save(); err != nil {
+		var r record
+		if err := d.Decode(&r); err == os.EOF {
+			break
+		} else if err != nil {
+			return err
+		}
+		s.Set(r.Key, r.URL)
+	}
+	return nil
+}
+
+func (s *URLStore) saveLoop(filename string) {
+	f, err := os.Open(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	if err != nil {
+		log.Println("URLStore:", err)
+		return
+	}
+	e := gob.NewEncoder(f)
+	for {
+		r := <-s.save
+		if err := e.Encode(r); err != nil {
 			log.Println("URLStore:", err)
 		}
-		time.Sleep(saveTimeout)
 	}
-}
-
-
-type URLMap struct {
-	urls map[string]string
-	mu   sync.RWMutex
-}
-
-func NewURLMap() *URLMap {
-	return &URLMap{urls: make(map[string]string)}
-}
-
-func (m *URLMap) Set(key, url string) {
-	m.mu.Lock()
-	m.urls[key] = url
-	m.mu.Unlock()
-}
-
-func (m *URLMap) Get(key string) (url string) {
-	m.mu.RLock()
-	url = m.urls[key]
-	m.mu.RUnlock()
-	return
-}
-
-func (m *URLMap) WriteTo(w io.Writer) os.Error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	e := gob.NewEncoder(w)
-	return e.Encode(m.urls)
-}
-
-func (m *URLMap) ReadFrom(r io.Reader) os.Error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	d := gob.NewDecoder(r)
-	return d.Decode(&m.urls)
 }
