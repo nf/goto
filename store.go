@@ -3,7 +3,6 @@ package main
 import (
 	"github.com/nf/stat"
 	"gob"
-	"io"
 	"log"
 	"os"
 	"rpc"
@@ -19,8 +18,8 @@ type Store interface {
 }
 
 type URLStore struct {
-	mu       sync.Mutex
-	urls     *URLMap
+	mu       sync.RWMutex
+	urls     map[string]string
 	count    int
 	filename string
 	dirty    chan bool
@@ -28,41 +27,55 @@ type URLStore struct {
 
 func NewURLStore(filename string) *URLStore {
 	s := &URLStore{
-		urls:     NewURLMap(),
+		urls:     make(map[string]string),
 		filename: filename,
 		dirty:    make(chan bool, 1),
 	}
-	if err := s.load(); err != nil {
-		log.Println("URLStore:", err)
+	if filename != "" {
+		if err := s.load(); err != nil {
+			log.Println("URLStore:", err)
+		}
+		go s.saveLoop()
 	}
-	go s.saveLoop()
 	return s
 }
 
 func (s *URLStore) Get(key, url *string) os.Error {
-	if u, ok := s.urls.Get(*key); ok {
+	defer statSend("store get")
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if u, ok := s.urls[*key]; ok {
 		*url = u
-		statSend("store get")
 		return nil
 	}
 	return os.NewError("key not found")
 }
 
-func (s *URLStore) Put(url, key *string) os.Error {
+func (s *URLStore) Set(key, url *string) os.Error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, present := s.urls[*key]; present {
+		return os.NewError("key already exists")
+	}
+	s.urls[*key] = *url
+	return nil
+}
+
+func (s *URLStore) Put(url, key *string) os.Error {
+	defer statSend("store put")
 	for {
 		*key = genKey(s.count)
 		s.count++
-		if _, ok := s.urls.Get(*key); !ok {
+		if err := s.Set(key, url); err == nil {
 			break
 		}
 	}
-	s.urls.Set(*key, *url)
-	s.mu.Unlock()
-	_ = s.dirty <- true
-	statSend("store put")
+	if s.filename != "" {
+		_ = s.dirty <- true
+	}
 	return nil
 }
+
 
 func (s *URLStore) load() os.Error {
 	f, err := os.Open(s.filename, os.O_RDONLY, 0)
@@ -70,7 +83,10 @@ func (s *URLStore) load() os.Error {
 		return err
 	}
 	defer f.Close()
-	return s.urls.ReadFrom(f)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d := gob.NewDecoder(f)
+	return d.Decode(&s.urls)
 }
 
 func (s *URLStore) save() os.Error {
@@ -79,7 +95,10 @@ func (s *URLStore) save() os.Error {
 		return err
 	}
 	defer f.Close()
-	return s.urls.WriteTo(f)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	e := gob.NewEncoder(f)
+	return e.Encode(s.urls)
 }
 
 func (s *URLStore) saveLoop() {
@@ -94,7 +113,7 @@ func (s *URLStore) saveLoop() {
 
 
 type ProxyStore struct {
-	urls   *URLMap
+	urls   *URLStore
 	client *rpc.Client
 }
 
@@ -103,66 +122,28 @@ func NewProxyStore(addr string) *ProxyStore {
 	if err != nil {
 		log.Println("ProxyStore:", err)
 	}
-	return &ProxyStore{urls: NewURLMap(), client: client}
+	return &ProxyStore{urls: NewURLStore(""), client: client}
 }
 
 func (s *ProxyStore) Get(key, url *string) os.Error {
-	if u, ok := s.urls.Get(*key); ok {
-		*url = u
-		statSend("cache hit")
+	if err := s.urls.Get(key, url); err == nil {
 		return nil
 	}
-	err := s.client.Call("Store.Get", key, url)
-	if err == nil {
-		s.urls.Set(*key, *url)
+	if err := s.client.Call("Store.Get", key, url); err != nil {
+		return err
 	}
-	return err
+	s.urls.Set(key, url)
+	return nil
 }
 
 func (s *ProxyStore) Put(url, key *string) os.Error {
-	err := s.client.Call("Store.Put", url, key)
-	if err == nil {
-		s.urls.Set(*key, *url)
+	if err := s.client.Call("Store.Put", url, key); err != nil{
+		return err
 	}
-	return err
+	s.urls.Set(key, url)
+	return nil
 }
 
-
-type URLMap struct {
-	mu   sync.RWMutex
-	urls map[string]string
-}
-
-func NewURLMap() *URLMap {
-	return &URLMap{urls: make(map[string]string)}
-}
-
-func (m *URLMap) Set(key, url string) {
-	m.mu.Lock()
-	m.urls[key] = url
-	m.mu.Unlock()
-}
-
-func (m *URLMap) Get(key string) (string, bool) {
-	m.mu.RLock()
-	url, ok := m.urls[key]
-	m.mu.RUnlock()
-	return url, ok
-}
-
-func (m *URLMap) WriteTo(w io.Writer) os.Error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	e := gob.NewEncoder(w)
-	return e.Encode(m.urls)
-}
-
-func (m *URLMap) ReadFrom(r io.Reader) os.Error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	d := gob.NewDecoder(r)
-	return d.Decode(&m.urls)
-}
 
 func statSend(s string) {
 	if *statServer != "" {
