@@ -34,11 +34,9 @@ type record struct {
 }
 
 func NewURLStore(filename string) *URLStore {
-	s := &URLStore{
-		urls: make(map[string]string),
-		save: make(chan record),
-	}
+	s := &URLStore{urls: make(map[string]string)}
 	if filename != "" {
+		s.save = make(chan record, saveQueueLength)
 		if err := s.load(filename); err != nil {
 			log.Println("URLStore:", err)
 		}
@@ -77,7 +75,9 @@ func (s *URLStore) Put(url, key *string) os.Error {
 			break
 		}
 	}
-	s.save <- record{*key, *url}
+	if s.save != nil {
+		s.save <- record{*key, *url}
+	}
 	return nil
 }
 
@@ -110,29 +110,21 @@ func (s *URLStore) saveLoop(filename string) {
 		log.Println("URLStore:", err)
 		return
 	}
-	defer f.Close()
 	b := bufio.NewWriter(f)
 	e := gob.NewEncoder(b)
 	t := time.NewTicker(saveTimeout)
-	queue := make([]record, 0, saveQueueLength)
+	defer f.Close()
+	defer b.Flush()
 	for {
-		force := false
+		var err os.Error
 		select {
 		case r := <-s.save:
-			queue = append(queue, r)
+			err = e.Encode(r)
 		case <-t.C:
-			force = true
+			err = b.Flush()
 		}
-		if len(queue) >= saveQueueLength || force && len(queue) > 0 {
-			for _, r := range queue {
-				if err := e.Encode(r); err != nil {
-					log.Println("URLStore:", err)
-				}
-			}
-			if err := b.Flush(); err != nil {
-				log.Println("URLStore:", err)
-			}
-			queue = queue[:0]
+		if err != nil {
+			log.Println("URLStore:", err)
 		}
 	}
 }
