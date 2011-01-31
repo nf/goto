@@ -1050,12 +1050,14 @@ The <code>Get</code> method can return an explicit error when the provided key
 is not found:
 </p>
 <pre>
-func (s *URLStore) Get(key, url *string) <em>os.Error</em> {
-<em>	if u := </em>s.urls.Get(*key)<em>; u != "" {
-		*url = u
-		return nil
-	}
-	return os.NewError("key not found")</em>
+func (s *URLStore) Get(key, url *string) os.Error {
+        s.mu.RLock()
+        defer s.mu.RUnlock()
+        if u, ok := s.urls[*key]; ok {
+                *url = u
+                return nil
+        }
+        return os.NewError("key not found")
 }
 </pre>
 <p>
@@ -1242,15 +1244,15 @@ These slides are available at <a href="http://wh3rd.net/practical-go/">http://wh
 <div class="slide">
 <h1>A caching ProxyStore</h1>
 <p>
-We already have the perfect data structure for caching this data, the
-<code>URLMap</code>.
+We already have the perfect data structure for caching this data,
+the <code>URLStore</code>.
 </p>
 <p>
-Let's add a <code>URLMap</code> instance to <code>ProxyStore</code>:
+Let's add a <code>URLStore</code> instance to <code>ProxyStore</code>:
 </p>
 <pre>
 type ProxyStore struct {
-<em>	urls   *URLMap</em>
+<em>	urls   *URLStore</em>
 	client *rpc.Client
 }
 
@@ -1259,9 +1261,13 @@ func NewProxyStore(addr string) *ProxyStore {
 	if err != nil {
 	        log.Println("ProxyStore:", err)
 	}
-	return &ProxyStore{<em>urls: NewURLMap()</em>, client: client}
+	return &ProxyStore{<em>urls: NewURLStore("")</em>, client: client}
 }
 </pre>
+<p>
+And we must modify the <code>URLStore</code> so that it doesn't try to write
+or read from the file if an empty filename is given.
+</p>
 </div>
 
 <div class="slide">
@@ -1273,15 +1279,14 @@ it should make the RPC call, and update its local cache with the result.
 </p>
 <pre>
 func (s *ProxyStore) Get(key, url *string) os.Error {
-<em>	if u := s.urls.Get(*key); u != "" {
-	        *url = u
-	        return nil
-	}</em>
-	err := s.client.Call("Store.Get", key, url)
-<em>	if err == nil {
-	        s.urls.Set(*key, *url)
-	}</em>
-	return err
+        <em>if err := s.urls.Get(key, url); err == nil {
+                return nil
+        }</em>
+        if err := s.client.Call("Store.Get", key, url); err != nil {
+                return err
+        }
+        <em>s.urls.Set(key, url)</em>
+        return nil
 }
 </pre>
 </div>
@@ -1294,11 +1299,11 @@ successful RPC <code>Put</code>.
 </p>
 <pre>
 func (s *ProxyStore) Put(url, key *string) os.Error {
-	err := s.client.Call("Store.Put", url, key)
-<em>	if err == nil {
-	        s.urls.Set(*key, *url)
-	}</em>
-	return err
+        if err := s.client.Call("Store.Put", url, key); err != nil {
+                return err
+        }
+        <em>s.urls.Set(key, url)</em>
+        return nil
 }
 </pre>
 </div>
@@ -1336,9 +1341,7 @@ be improved:
     servers by key.
 <li>Deletion: to support deletion of shortened URLs, the interactions 
     bewteen master and slave would need to be made more complex.
-<li>Storage: rather than re-writing the whole database on each call to
-    <code>save</code>, it would be more efficient to write each new URL to
-    disk incrementally.
+<li>Storage: a buffer could be used to batch write operations.
 </ul>
 </div>
 
