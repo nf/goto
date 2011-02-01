@@ -618,8 +618,7 @@ func NewURLStore(<code>filename string</code>) *URLStore {
         s := &URLStore{urls: make(map[string]string)}
         <em>f, err := os.Open(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
         if err != nil {
-                log.Println("URLStore:", err)
-		return s
+                log.Exit("URLStore:", err)
         }
 	s.file = f</em>
         return s
@@ -640,16 +639,17 @@ func (s *URLStore) load() os.Error {
                 return err
         }
         d := gob.NewDecoder(s.file)
-        for {
+        var err os.Error
+        for err == nil {
                 var r record
-                if err := d.Decode(&r); err == os.EOF {
-                        break
-                } else if err != nil {
-                        return err
+                if err = d.Decode(&r); err == nil {
+                        s.Set(r.Key, r.URL)
                 }
-                s.Set(r.Key, r.URL)
         }
-        return nil
+        if err == os.EOF {
+                return nil
+        }
+        return err
 }
 </pre>
 </div>
@@ -665,8 +665,7 @@ func NewURLStore(filename string) *URLStore {
         s := &URLStore{urls: make(map[string]string)}
         f, err := os.Open(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
         if err != nil {
-                log.Println("URLStore:", err)
-                return s
+                log.Exit("URLStore:", err)
         }
         s.file = f
         <em>if err := s.load(); err != nil {
@@ -819,7 +818,7 @@ See the blog posts "<a href="http://blog.golang.org/2010/07/share-memory-by-comm
 </div>
 
 <div class="slide">
-<h1>Saving on demand</h1>
+<h1>Saving separately</h1>
 <p>
 Instead of making a function call to save each record to disk,
 let's have <code>Put</code> send to a buffered channel:
@@ -851,7 +850,7 @@ type URLStore struct {
 </div>
 
 <div class="slide">
-<h1>Saving on demand</h1>
+<h1>Saving separately</h1>
 <p>
 At the other end of the <code>save</code> channel we must have a receiver.
 </p>
@@ -878,14 +877,14 @@ func (s *URLStore) saveLoop(filename string) {
 </div>
 
 <div class="slide">
-<h1>Saving on demand</h1>
+<h1>Saving separately</h1>
 <p>
 We need to modify the <code>NewURLStore</code> function to launch the
 <code>saveLoop</code> goroutine (and remove the now-unnecessary file opening
 code):
 </p>
 <pre>
-const saveQueueLength = 1000
+<em>const saveQueueLength = 1000</em>
 
 func NewURLStore(filename string) *URLStore {
         s := &URLStore{
@@ -983,144 +982,48 @@ cache Get requests, and pass Puts through to the master.
 </div>
 
 <div class="slide">
-<h1>RPC: an aside</h1>
+<h1>Making URLStore an RPC service</h1>
 <p>
 Go's <code>rpc</code> package provides a convenient means of making function
 calls over a network connection.
 </p>
 <p>
-To serve, define a type with the methods you want to make accesible to RPC:
+Given a value, <code>rpc</code> will expose to the network any of the value's
+methods that meet this function signature:
 </p>
 <pre>
-type Args struct { A, B int }
-type Arith struct{}
-func (t *Arith) Multiply(args *Args, reply *int) os.Error {
-	*reply = args.A * args.B
-	return nil
-}
+func (t T) Name(args *ArgType, reply *ReplyType) os.Error
 </pre>
 <p>
-Then <code>Register</code> them with the <code>rpc</code> module, and start
-an HTTP server (for RPC-over-HTTP).
+To make <code>URLStore</code> an RPC service we need to alter the
+<code>Put</code> and <code>Get</code> methods so that they match the
+function signature expected by <code>rpc</code>:
 </p>
 <pre>
-rpc.Register(new(Arith))
-rpc.HandleHTTP()
-http.ListenAndServe(":8080", nil)
-</pre>
-<p>
-This makes the <code>Multiply</code> method available as an RPC call under the name
-<code>"Arith.Multiply"</code>.
-</div>
+func (s *URLStore) Get(key, url *string) os.Error
 
-<div class="slide">
-<h1>RPC: an aside</h1>
-<p>
-On the client side, dial the server:
-</p>
-<pre>
-client, err := rpc.DialHTTP("tcp", "localhost:8080")
-if err != nil {
-	log.Exit("dialing:", err)
-}
+func (s *URLStore) Put(url, key *string) os.Error
 </pre>
 <p>
-Set up arguments and reply values, and make the RPC <code>Call</code>:
+And, of course, we need to change the call sites to call these functions
+appropriately.
 </p>
-<pre>
-args := Args{7,8}
-var reply int
-err = client.Call("Arith.Multiply", &args, &reply)
-if err != nil {
-	log.Exit("arith error:", err)
-}
-fmt.Printf("Arith: %d*%d=%d", args.A, args.B, *reply)
-</pre>
+<p class="eg">
+These changes are described in full by some slides at the end of this 
+presentation. They have been omitted here for time reasons.
+</p>
 </div>
 
 <div class="slide">
 <h1>Making URLStore an RPC service</h1>
-<p>
-To make <code>URLStore</code> an RPC services, we need to alter the 
-<code>Get</code> and <code>Put</code> methods to be <code>rpc</code>-friendly.
-The function signatures change, and now return an <code>os.Error</code> value.
-</p>
-<p>
-The <code>Get</code> method can return an explicit error when the provided key 
-is not found:
-</p>
-<pre>
-func (s *URLStore) Get(key, url *string) os.Error {
-        s.mu.RLock()
-        defer s.mu.RUnlock()
-        if u, ok := s.urls[*key]; ok {
-                *url = u
-                return nil
-        }
-        return os.NewError("key not found")
-}
-</pre>
-<p>
-Beyond the function signature, the <code>Put</code> method barely changes
-in its actual code (not shown here):
-</p>
-<pre>
-func (s *URLStore) Put(url, key *string) <em>os.Error</em>
-</pre>
-</div>
-
-<div class="slide">
-<h1>Making URLStore an RPC service</h1>
-<p>
-In turn, the HTTP handlers must be modfied to accommodate the changes to
-<code>URLStore</code>.
-</p>
-<p>
-The <code>Redirect</code> handler now returns the error string provided by
-the <code>URLStore</code>:
-</p>
-<pre>
-func Redirect(w http.ResponseWriter, r *http.Request) {
-	key := r.URL.Path[1:]
-<em>	var url string</em>
-	if <em>err</em> := store.Get(<em>&</em>key, <em>&</em>url); err != nil {
-<em>	        http.Error(w, err.String(), http.StatusInternalServerError)</em>
-	        return
-	}
-	http.Redirect(w, r, url, http.StatusFound)
-}
-</pre>
-</div>
-
-<div class="slide">
-<h1>Making URLStore an RPC service</h1>
-<p>The <code>Add</code> handler changes in much the same way:</p>
-<pre>
-func Add(w http.ResponseWriter, r *http.Request) {
-	url := r.FormValue("url")
-	if url == "" {
-	        fmt.Fprint(w, AddForm)
-	        return
-	}
-<em>	var key string</em>
-	if <em>err</em> := store.Put(<em>&</em>url, <em>&</em>key); err != nil {
-<em>	        http.Error(w, err.String(), http.StatusInternalServerError)</em>
-	        return
-	}
-	fmt.Fprintf(w, "http://%s/%s", *hostname, key)
-}
-</pre>
-</div>
-
-<div class="slide">
-<h1>Making URLStore an RPC service</h1>
-<p>Finally, we can register the <code>URLStore</code> as an <code>rpc</code>
-service. First we'll add a command-line flag to enable it:</p>
+<p>Add a command-line flag to enable the RPC server:</p>
 <pre>
 rpcEnabled = flag.Bool("rpc", false, "enable RPC server")
 </pre>
 <p>
-And add the registration to <code>main</code>:
+And then <code>Register</code> the <code>URLStore</code> with the
+<code>rpc</code> package and set up the RPC-over-HTTP handler with
+<code>HandleHTTP</code>.
 </p>
 <pre>
 func main() {
@@ -1351,6 +1254,84 @@ be improved:
 <p>adg@golang.org</p>
 <p>http://wh3rd.net/practical-go/</p>
 <p><img src="bumper640x360.png"></p>
+</div>
+
+<div class="slide">
+<h1>Additional RPC slides follow</h1>
+</div>
+
+<div class="slide">
+<h1>Making URLStore an RPC service</h1>
+<p>
+To make <code>URLStore</code> an RPC services, we need to alter the 
+<code>Get</code> and <code>Put</code> methods to be <code>rpc</code>-friendly.
+The function signatures change, and now return an <code>os.Error</code> value.
+</p>
+<p>
+The <code>Get</code> method can return an explicit error when the provided key 
+is not found:
+</p>
+<pre>
+func (s *URLStore) Get(key, url *string) os.Error {
+        s.mu.RLock()
+        defer s.mu.RUnlock()
+        if u, ok := s.urls[*key]; ok {
+                *url = u
+                return nil
+        }
+        return os.NewError("key not found")
+}
+</pre>
+<p>
+Beyond the function signature, the <code>Put</code> method barely changes
+in its actual code (not shown here):
+</p>
+<pre>
+func (s *URLStore) Put(url, key *string) <em>os.Error</em>
+</pre>
+</div>
+
+<div class="slide">
+<h1>Making URLStore an RPC service</h1>
+<p>
+In turn, the HTTP handlers must be modfied to accommodate the changes to
+<code>URLStore</code>.
+</p>
+<p>
+The <code>Redirect</code> handler now returns the error string provided by
+the <code>URLStore</code>:
+</p>
+<pre>
+func Redirect(w http.ResponseWriter, r *http.Request) {
+	key := r.URL.Path[1:]
+<em>	var url string</em>
+	if <em>err</em> := store.Get(<em>&</em>key, <em>&</em>url); err != nil {
+<em>	        http.Error(w, err.String(), http.StatusInternalServerError)</em>
+	        return
+	}
+	http.Redirect(w, r, url, http.StatusFound)
+}
+</pre>
+</div>
+
+<div class="slide">
+<h1>Making URLStore an RPC service</h1>
+<p>The <code>Add</code> handler changes in much the same way:</p>
+<pre>
+func Add(w http.ResponseWriter, r *http.Request) {
+	url := r.FormValue("url")
+	if url == "" {
+	        fmt.Fprint(w, AddForm)
+	        return
+	}
+<em>	var key string</em>
+	if <em>err</em> := store.Put(<em>&</em>url, <em>&</em>key); err != nil {
+<em>	        http.Error(w, err.String(), http.StatusInternalServerError)</em>
+	        return
+	}
+	fmt.Fprintf(w, "http://%s/%s", *hostname, key)
+}
+</pre>
 </div>
 
 </body>

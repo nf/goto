@@ -22,8 +22,7 @@ func NewURLStore(filename string) *URLStore {
 	s := &URLStore{urls: make(map[string]string)}
 	f, err := os.Open(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
-		log.Println("URLStore:", err)
-		return s
+		log.Exit("URLStore:", err)
 	}
 	s.file = f
 	if err := s.load(); err != nil {
@@ -67,16 +66,17 @@ func (s *URLStore) load() os.Error {
 		return err
 	}
 	d := gob.NewDecoder(s.file)
-	for {
+	var err os.Error
+	for err == nil {
 		var r record
-		if err := d.Decode(&r); err == os.EOF {
-			break
-		} else if err != nil {
-			return err
+		if err = d.Decode(&r); err == nil {
+			s.Set(r.Key, r.URL)
 		}
-		s.Set(r.Key, r.URL)
 	}
-	return nil
+	if err == os.EOF {
+		return nil
+	}
+	return err
 }
 
 func (s *URLStore) save(key, url string) os.Error {

@@ -67,16 +67,16 @@ func (s *URLStore) load(filename string) os.Error {
 	}
 	defer f.Close()
 	d := gob.NewDecoder(f)
-	for {
+	for err == nil {
 		var r record
-		if err := d.Decode(&r); err == os.EOF {
-			break
-		} else if err != nil {
-			return err
+		if err = d.Decode(&r); err == nil {
+			s.Set(r.Key, r.URL)
 		}
-		s.Set(r.Key, r.URL)
 	}
-	return nil
+	if err == os.EOF {
+		return nil
+	}
+	return err
 }
 
 func (s *URLStore) saveLoop(filename string) {
