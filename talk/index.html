@@ -22,19 +22,8 @@
 <div class="slide">
 <h1>What is Go?</h1>
 <img src="gopher.png" style="float: right;">
-<p>A general-purpose programming language.</p>
-<p>Go is:</p>
-<ul class="contrasts">
-<li>Small <em>beautiful</em></li>
-<li>Simple <em>easy</em></li>
-<li>Fast <em>powerful</em></li>
-<li>Fun <em>wheee!</em></li>
-<li>One year old</li>
-</ul>
-</div>
-
-<div class="slide">
-<h1>Go's killer features</h1>
+<p>Go is a general-purpose programming language.</p>
+<p>Go's killer features:</p>
 <ul class="contrasts">
 <li>Emphasis on simplicity; <em>easy to learn</em></li>
 <li>Memory managed and syntactically lightweight; <em>easy to use</em></li>
@@ -107,16 +96,17 @@ u := m[1]
 v, present := m[2]
 <span>// v == "", present == false</span>
 </pre>
-<p>(*The keys must be comparable with ==.)</p>
+<p>(*The keys must be comparable with <code>==</code>.)</p>
 </div>
 
 <div class="slide">
 <h1>Data structures</h1>
-<p>We specify the <code>URLMap</code> type, Goto's fundamental data structure:</p>
+<p>We specify the <code>URLStore</code> type,
+Goto's fundamental data structure:</p>
 <pre>
-type URLMap map[string]string
+type URLStore map[string]string
 
-m := make(URLMap)
+m := make(URLStore)
 </pre>
 <p>To store the mapping of <code>http://goto/a</code> to <code>http://google.com/</code> in <code>m</code>:</p>
 <pre>
@@ -130,7 +120,7 @@ This has a shortcoming: Go's <code>map</code> type is not thread-safe.
 </p>
 <p>
 Goto will serve many requests concurrently, so we must make our 
-<code>URLMap</code> type safe to access from separate threads.
+<code>URLStore</code> type safe to access from separate threads.
 </p>
 </div>
 
@@ -141,14 +131,14 @@ To protect the <code>map</code> type from being modified while it is being
 read, we must add a lock to the data structure.
 </p>
 <p>
-Changing the type definition, we make <code>URLMap</code> a <code>struct</code>
-type with two fields: the <code>map</code> and a <code>RWMutex</code> from
-the <code>sync</code> package.
+Changing the type definition, we make <code>URLStore</code> a
+<code>struct</code> type with two fields: the <code>map</code> and 
+a <code>RWMutex</code> from the <code>sync</code> package.
 </p>
 <pre>
 import "sync"
 
-type URLMap struct {
+type URLStore struct {
 	urls map[string]string
 	mu   sync.RWMutex
 }
@@ -163,41 +153,105 @@ take the write lock (to the exclusion of all readers).
 <div class="slide">
 <h1>Setter and Getter methods</h1>
 <p>
-We must now interact with the <code>URLMap</code> through <code>Set</code>
+We must now interact with the <code>URLStore</code> through <code>Set</code>
 and <code>Get</code> methods.
 </p>
-<p>
-The <code>Set</code> method takes the write lock, and updates the url map:
-</p>
-<pre>
-func (m *URLMap) Set(key, url string) {
-	m.mu.Lock()
-	m.urls[key] = url
-	m.mu.Unlock()
-}       
-</pre>
 <p>
 The <code>Get</code> method takes the read lock with <code>RLock</code>, and
 returns the URL as a string. If the key is present in the map, the
 zero value for the string type (an empty string) will be returned.
 </p>
 <pre>
-func (m *URLMap) Get(key string) (url string) {
-	m.mu.RLock()
-	url = m.urls[key]
-	m.mu.RUnlock()
-        return
+func (s *URLStore) Get(key string) string {
+	s.mu.RLock()
+	url := s.urls[key]
+	s.mu.RUnlock()
+        return url
 }
+</pre>
+<p>
+The <code>Set</code> method takes the write lock and updates the url map.
+If the key is already present a boolean <code>false</code> value is
+returned and the map is not updated.
+</p>
+<pre>
+func (s *URLStore) Set(key, url string) bool {
+	s.mu.Lock()
+	_, present := s.urls[key]
+	if present {
+		s.mu.Unlock()
+		return false
+	}
+	s.urls[key] = url
+	s.mu.Unlock()
+	return true
+}       
+</pre>
+</div>
+
+<div class="slide">
+<h1>Defer: an aside</h1>
+<p>
+A <code>defer</code> statement pushes a function call onto a list.
+The list of saved calls is executed after the surrounding function returns.
+Defer is commonly used to simplify functions that perform various clean-up
+actions.
+</p>
+<p>
+For example, this function will print "Hello" and then "World":
+<pre>
+func foo() {
+	defer fmt.Println("World")
+	fmt.Println("Hello")
+}
+</pre>
+<p>
+We can use <code>defer</code> to simplify the <code>Set</code> and
+<code>Get</code> methods.
+</p>
+<p class="eg">
+There's more to defer.
+See the "<a href="http://blog.golang.org/2010/08/defer-panic-and-recover.html">Defer, Panic, and Recover</a>" blog post for an in-depth discussion.
+</p>
+</div>
+
+<div class="slide">
+<h1>Setter and Getter methods</h1>
+<p>
+The <code>Get</code> method can avoid using the local <code>url</code>
+variable and return the map value directly:
+</p>
+<pre>
+func (s *URLStore) Get(key string) string {
+	s.mu.RLock()
+	<em>defer</em> s.mu.RUnlock()
+	return s.urls[key]
+}
+</pre>
+<p>
+And the logic for <code>Set</code> becomes clearer:
+</p>
+<pre>
+func (s *URLStore) Set(key, url string) bool {
+	s.mu.Lock()
+	<em>defer</em> s.mu.Unlock()
+	_, present := s.urls[key]
+	if present {
+		return false
+	}
+	s.urls[key] = url
+	return true
+}       
 </pre>
 </div>
 
 <div class="slide">
 <h1>An initializer function</h1>
 <p>
-The <code>URLMap</code> struct contains a <code>map</code> field,
+The <code>URLStore</code> struct contains a <code>map</code> field,
 which must be initialized with <code>make</code> before it can be used.
 <pre>
-type URLMap struct {
+type URLStore struct {
 	urls map[string]string
 	mu   sync.RWMutex
 }
@@ -207,27 +261,27 @@ Go doesn't have constructors. Instead, the convention is to write a function
 named <code>NewXXX</code> that returns an intialized instance of the type.
 </p>
 <pre>
-func NewURLMap() *URLMap {
-	return &URLMap{urls: make(map[string]string)}
+func NewURLStore() *URLStore {
+	return &URLStore{urls: make(map[string]string)}
 }
 </pre>
 </div>
 
 <div class="slide">
-<h1>Using URLMap</h1>
+<h1>Using URLStore</h1>
 <p>
 Creating an instance:
 </p>
 <pre>
-m := NewURLMap()
+s := NewURLStore()
 </pre>
 <p>Setting a URL by key:</p>
 <pre>
-m.Set("a", "http://google.com")
+s.Set("a", "http://google.com")
 </pre>
 <p>Getting a URL by key:</p>
 <pre>
-if url := m.Get("a"); url != "" {
+if url := s.Get("a"); url != "" {
 	// redirect to url
 } else {
 	// key not found
@@ -236,100 +290,35 @@ if url := m.Get("a"); url != "" {
 </div>
 
 <div class="slide">
-<h1>The URLStore</h1>
+<h1>Shortening URLs</h1>
 <p>
-Let's create an object to manage the basic functionality of our service.
+We have the <code>Get</code> method for retrieving URLs.
+Let's create a <code>Put</code> method that takes a URL,
+stores the URL in the map under a corresponding key, and returns the key.
 </p>
-<pre>
-type URLStore struct{}
-</pre>
-<p>
-The <code>URLStore</code> has two methods:
-</p>
-<ul>
-<li><code>Put</code> takes a URL, generates its short key, and returns the key.
-<pre>
-func (s *URLStore) Put(url string) (key string)
-</pre>
-<li><code>Get</code> takes a short key and returns its associated URL.
-<pre>
-func (s *URLStore) Get(key string) (url string)
-</pre>
-</ul>
-</div>
-
-<div class="slide">
-<h1>URLStore.Put</h1>
 <pre>
 type URLStore struct {
-	urls  *URLMap
+	<span>...</span>
 	count int
 }
 
-func (s *URLStore) Put(url string) (key string) {
+func (s *URLStore) Put(url string) string {
         for {
-                key = genKey(s.count)
+                key := genKey(s.count)
                 s.count++
-                if u := s.urls.Get(key); u == "" {
-                        break
+                if ok := s.Set(key, url); ok {
+                        return key
                 }
         }
-        s.urls.Set(key, url)
-	return
+	panic("shouldn't get here")
 }
 </pre>
 <p>
 The <code>genKey</code> function takes an integer and returns a corresponding
-alphanumeric key.
-</p>
-<p>
-There's a race condition: two clients calling <code>Put</code> simultaneously
-may be given the same key.
-</p>
-</div>
-
-<div class="slide">
-<h1>URLStore.Put - now thread-safe</h1>
-<pre>
-type URLStore struct {
-<em>	mu    sync.Mutex</em>
-	urls  *URLMap
-	count int
-}
-
-func (s *URLStore) Put(url string) (key string) {
-<em>	s.mu.Lock()</em>
-        for {
-                key = genKey(s.count)
-                s.count++
-                if u := s.urls.Get(key); u == "" {
-                        break
-                }
-        }
-        s.urls.Set(key, url)
-<em>	s.mu.Unlock()</em>
-	return
-}
-</pre>
-</div>
-
-<div class="slide">
-<h1>URLStore - the remaining bits</h1>
-<p>
-The <code>Get</code> method:
+alphanumeric key:
 </p>
 <pre>
-func (s *URLStore) Get(key string) (url string) {
-	return s.urls.Get(key)
-}
-</pre>
-<p>
-Finally, the initializer function:
-</p>
-<pre>
-func NewURLStore() *URLStore {
-	return &URLStore{urls: NewURLMap()}
-}
+func genKey(n int) string { <span>/* implementation omitted */ </span> }
 </pre>
 </div>
 
@@ -478,15 +467,27 @@ represents HTTP code 302 ("Found").
 <ul>
 <li><a href="https://github.com/nf/goto/tree/master/talk/code/0/">https://github.com/nf/goto/tree/master/talk/code/0/</a></li>
 </ul>
-<p>
-<img src="structure.png">
-</p>
+<!-- TODO: new diagram -->
 <p>
 The <code>http</code> package uses Go's concurrency features 
 "behind the scenes". We will use goroutines and channels explicitly later.
 </p>
 <p class="eg">
 These slides are available at <a href="http://wh3rd.net/practical-go/">http://wh3rd.net/practical-go/</a>
+</p>
+</div>
+
+<div class="slide">
+<h1>Persistent Storage</h1>
+<p>
+When the goto process ends, the shortened URLs in memory will be lost.
+</p>
+<p>
+This isn't very helpful.
+</p>
+<p>
+Let's modify <code>URLStore</code> so that it writes its data to a file,
+and restores that data on start-up.
 </p>
 </div>
 
@@ -540,23 +541,9 @@ method, <code>w</code> can be passed to <code>Fprint</code> as an
 </div>
 
 <div class="slide">
-<h1>Persistent Storage</h1>
-<p>
-When the goto process ends, the shortened URLs in memory will be lost.
-</p>
-<p>
-This isn't very helpful.
-</p>
-<p>
-Let's modify <code>URLStore</code> so that it writes its <code>URLMap</code> to
-a file, and restores that data on start-up.
-</p>
-</div>
-
-<div class="slide">
 <h1>Persistent Storage: gob</h1>
 <p>
-How should we represent the <code>URLMap</code> on disk?
+How should we represent the <code>URLStore</code> on disk?
 </p>
 <p>
 Go's <code>gob</code> package handles serializing and deserializing Go
@@ -576,111 +563,65 @@ Go data structures.
 </div>
 
 <div class="slide">
-<h1>Persistent Storage: URLMap</h1>
+<h1>Persistent Storage: URLStore</h1>
 <p>
-The <code>WriteTo</code> method writes the URLMap's data to the provided <code>io.Writer</code>:
+Let's create a new data type, <code>record</code>, that describes how
+single key/url pair will be stored on disk:
 </p>
 <pre>
-func (m *URLMap) WriteTo(w io.Writer) os.Error {
-	m.mu.RLock()
-	e := gob.NewEncoder(w)
-	err := e.Encode(m.urls)
-	m.mu.RUnlock()
-	return err
-}
-</pre>
-</ul>
-</div>
-
-<div class="slide">
-<h1>Persistent Storage: URLMap</h1>
-<p>
-The <code>ReadFrom</code> method reads URLMap data from the provided <code>io.Reader</code>:
-</p>
-<pre>
-func (m *URLMap) ReadFrom(r io.Reader) os.Error {
-	m.mu.Lock()
-	d := gob.NewDecoder(r)
-	err := d.Decode(&m.urls)
-	m.mu.Unlock()
-	return err
-}
-</pre>
-</div>
-
-<div class="slide">
-<h1>Defer: an aside</h1>
-<p>
-A <code>defer</code> statement pushes a function call onto a list.
-The list of saved calls is executed after the surrounding function returns.
-Defer is commonly used to simplify functions that perform various clean-up
-actions.
-</p>
-<p>
-For example, this function will print "Hello" and then "World":
-<pre>
-func foo() {
-	defer fmt.Println("World")
-	fmt.Println("Hello")
+type record struct {
+        Key, URL string
 }
 </pre>
 <p>
-We can use <code>defer</code> to simplify the <code>WriteTo</code> and
-<code>ReadFrom</code> methods.
+And a new <code>save</code> method that writes a given key and url
+to disk as a gob-encoded <code>record</code>:
 </p>
-</div>
-
-<div class="slide">
-<h1>Persistent Storage: URLMap</h1>
 <pre>
-func (m *URLMap) WriteTo(w io.Writer) os.Error {
-	m.mu.RLock()
-	<em>defer</em> m.mu.RUnlock()
-	e := gob.NewEncoder(w)
-	return e.Encode(m.urls)
-}
-
-func (m *URLMap) ReadFrom(r io.Reader) os.Error {
-	m.mu.Lock()
-	<em>defer</em> m.mu.Unlock()
-	d := gob.NewDecoder(r)
-	return d.Decode(&m.urls)
+func (s *URLStore) save(key, url string) os.Error {
+        e := gob.NewEncoder(s.file)
+        return e.Encode(record{key, url})
 }
 </pre>
-<p>
-Using <code>defer</code>, we remove the need for the local variable
-<code>err</code>. The mutexes are unlocked <em>after</em> the return statements.
-</p>
-<p class="eg">
-There's more to defer.
-See the "<a href="http://blog.golang.org/2010/08/defer-panic-and-recover.html">Defer, Panic, and Recover</a>" blog post for an in-depth discussion.
-</p>
+<p>But what is this new <code>file</code> field of <code>URLStore</code>?</p>
 </div>
 
 <div class="slide">
 <h1>Persistent Storage: URLStore</h1>
 <p>
-Now that we have a means of reading and writing <code>URLMap</code> data, 
-we can make <code>URLStore</code> load and save data from files.
-</p>
-<p>
-First, we'll add a <code>filename</code> element to the <code>URLStore</code>
-struct, and add a <code>filename</code> parameter to the
-<code>NewURLStore</code> function:
+The new <code>file</code> field (of type <code>*os.File</code>)
+will be a handle to an open file that can be used for writing and reading.
 </p>
 <pre>
 type URLStore struct {
-	mu       sync.Mutex
-	urls     *URLMap
-	count    int
-<em>	filename string</em>
+        urls     map[string]string
+        mu       sync.RWMutex
+        count    int
+        <em>file     *os.File</em>
 }
+</pre>
+<p>
+The <code>*os.File</code> type implements both <code>io.Reader</code> and
+<code>io.Writer</code>, and can therefore be used with both the
+<code>gob.NewDecoder</code> and <code>gob.NewEncoder</code> functions.
+</p>
+</div>
 
-func NewURLStore(<em>filename string</em>) *URLStore {
-	return &URLStore{
-		urls:     NewURLMap(),
-<em>		filename: filename,</em>
-	}
+<div class="slide">
+<h1>Persistent Storage: URLStore</h1>
+<p>
+The <code>NewURLStore</code> now takes a <code>filename</code> argument,
+<code>Open</code>s the file, and stores the <code>*os.File</code> value
+in the <code>file</code> field:
+<pre>
+func NewURLStore(<code>filename string</code>) *URLStore {
+        s := &URLStore{urls: make(map[string]string)}
+        <em>f, err := os.Open(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+        if err != nil {
+                log.Exit("URLStore:", err)
+        }
+	s.file = f</em>
+        return s
 }
 </pre>
 </div>
@@ -688,76 +629,69 @@ func NewURLStore(<em>filename string</em>) *URLStore {
 <div class="slide">
 <h1>Persistent Storage: URLStore</h1>
 <p>
-The <code>load</code> method opens a file and reads its contents
-into the <code>URLMap</code>.
+The new <code>load</code> method will <code>Seek</code> to the beginning of
+the file, read and <code>Decode</code> each <code>record</code>,
+and store write the data to the map using the <code>Set</code> method:
 </p>
 <pre>
 func (s *URLStore) load() os.Error {
-	f, err := os.Open(s.filename, os.O_RDONLY, 0)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return s.urls.ReadFrom(f)
+        if _, err := s.file.Seek(0, 0); err != nil {
+                return err
+        }
+        d := gob.NewDecoder(s.file)
+        var err os.Error
+        for err == nil {
+                var r record
+                if err = d.Decode(&r); err == nil {
+                        s.Set(r.Key, r.URL)
+                }
+        }
+        if err == os.EOF {
+                return nil
+        }
+        return err
 }
 </pre>
-<p>The variable <code>f</code> is an <code>*os.File</code>, which implements
-the <code>Read</code> method and can therefore be used as an
-<code>io.Reader</code> by <code>ReadFrom</code>.
 </div>
 
 <div class="slide">
 <h1>Persistent Storage: URLStore</h1>
 <p>
-The <code>save</code> method opens a file for writing (either creating or
-truncating it) and writes the contents of the <code>URLMap</code> to it.
-</p>
-<pre>
-func (s *URLStore) save() os.Error {
-	f, err := os.Open(s.filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return s.urls.WriteTo(f)
-}
-</pre>
-<p>Again, the variable <code>f</code> is an <code>*os.File</code>, which also
-implements the <code>Write</code> method and can therefore be used as an
-<code>io.Writer</code> by <code>WriteTo</code>.
-</div>
-
-<div class="slide">
-<h1>Persistent Storage: URLStore</h1>
-<p>
-Now we can make it <code>load</code> when initializing the
-<code>URLStore</code>:
+Took hook it all up, first we add a call to <code>load</code> to the
+constructor function:
 </p>
 <pre>
 func NewURLStore(filename string) *URLStore {
-	s := &URLStore{
-		urls:     NewURLMap(),
-		filename: filename,
-	}
-<em>	if err := s.load(); err != nil {
-		log.Println("URLStore:", err)
-	}</em>
-	return s
+        s := &URLStore{urls: make(map[string]string)}
+        f, err := os.Open(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+        if err != nil {
+                log.Exit("URLStore:", err)
+        }
+        s.file = f
+        <em>if err := s.load(); err != nil {
+                log.Println("URLStore:", err)
+        }</em>
+        return s
 }
 </pre>
 </div>
+
 <div class="slide">
 <h1>Persistent Storage: URLStore</h1>
-<p>And <code>save</code> when a new URL is added:</p>
+<p>And call <code>save</code> each time a new URL is added:</p>
 <pre>
-func (s *URLStore) Put(url string) (key string) {
-<span>	... (generate key)</span>
-        s.urls.Set(key, url)
-<em>	if err := s.save(); err != nil {
-		log.Println("URLStore:", err)
-	}</em>
-	s.mu.Unlock()
-	return
+func (s *URLStore) Put(url string) string {
+        for {
+                key := genKey(s.count)
+                s.count++
+                if ok := s.Set(key, url); ok {
+                        <em>if err := s.save(key, url); err != nil {
+                                log.Println("URLStore:", err)
+                        }</em>
+                        return key
+                }
+        }
+        panic("shouldn't get here")
 }
 </pre>
 </div>
@@ -788,17 +722,16 @@ Consider this pathological situation:
 </p>
 <ul>
 <li>Many clients attempt to add URLs simultaneously.
-<li>Each client must obtain the <code>URLStore</code> lock to perform a <code>Put</code>.
-<li>The <code>URLMap</code> is written to disk during each <code>Put</code>
-    (while the lock is held).
-<li>Therefore, the <i>n</i>th client must wait for the <code>URLMap</code>
-    to be written to disk <i>n</i>-1 times before its <code>Put</code> can 
-    complete.
+<li>Even though concurrent may update the map safely, the disk writes
+    may happen simultaneously. (Depending on your OS this may cause
+    corruption.)
+<li>Even if the writes do not collide, each client must wait for their
+    data to be written to disk before their <code>Put</code> will return.
+<li>A single write system call for each <code>Put</code> is inefficient.
 </ul>
 <p>
 To improve this situation we should decouple the <code>save</code> process 
-from the <code>Put</code> process, and only <code>save</code> the 
-<code>URLMap</code> periodically.
+from the <code>Put</code> process.
 </p>
 </div>
 
@@ -821,61 +754,6 @@ Memory is shared between goroutines, like in many popular threading models.
 <p>
 Goroutines are cheaper to create than operating system threads.
 </p>
-</div>
-
-<div class="slide">
-<h1>Saving on the side</h1>
-<p>
-Let's create a function that will run in its own goroutine, periodically saving
-the data store.
-</p>
-<pre>
-const saveTimeout = 10e9 // 10 seconds in nanoseconds
-
-func (s *URLStore) saveLoop() {
-	for {
-		if err := s.save(); err != nil {
-			log.Println("URLStore:", err)
-		}
-		time.Sleep(saveTimeout)
-	}
-}
-</pre>
-</div>
-
-<div class="slide">
-<h1>Saving on the side</h1>
-<p>
-We then need to launch the goroutine from <code>NewURLStore</code>:
-</p>
-<pre>
-func NewURLStore(filename string) *URLStore {
-	s := &URLStore{
-		urls:     NewURLMap(),
-		filename: filename,
-	}
-	if err := s.load(); err != nil {
-		log.Println("URLStore:", err)
-	}
-<em>	go s.saveLoop()</em>
-	return s
-}
-</pre>
-<p class="eg">
-(And we shouldn't forget to remove the call to <code>save</code> from the
-<code>Put</code> method.)
-</p>
-<div class="incremental">
-<p>
-But there's a problem with this approach: <code>save</code> will be called 
-regardless of whether the data store has been modified. This causes a lot of
-needless disk churn, and may become problematic as the data set grows.
-</p>
-<p>
-We need to send a signal to the <code>saveLoop</code> to tell it when
-the data needs to be saved.
-</p>
-</div>
 </div>
 
 <div class="slide">
@@ -909,6 +787,20 @@ i := &lt;-ch // receive an int from the channel
 <div class="slide">
 <h1>Channels: an aside</h1>
 <p>
+Communicating between goroutines:
+</p>
+<pre>
+func sum(x, y int, c chan int) {
+	c <- x + y
+}
+
+func main() {
+	c := make(chan int)
+	go sum(24, 18, c)
+	fmt.Println(<-c)
+}
+</pre>
+<p>
 Channel send/receive operations typically block until the other side is ready.
 Channels can be either buffered or unbuffered.
 Sends to a buffered channel will not block until the buffer is full.
@@ -920,112 +812,94 @@ second argument to <code>make</code>:
 <pre>
 ch := make(chan int, 10)
 </pre>
-<p>
-Non-blocking sends are performed by treating the send statement as
-an expression:
-</p>
-<pre>
-ok := ch <- 1
-<span>// ok == true if the send occurred</span>
-</pre>
-<p>
-Similarly, you can perform non-blocking reads by taking the second return
-value of the read:
-</p>
-<pre>
-i, ok := <-ch
-<span>// ok == true if a receive occurred</span>
-</pre>
 <p class="eg">
 See the blog posts "<a href="http://blog.golang.org/2010/07/share-memory-by-communicating.html">Share Memory by Communicating</a>" and "<a href="http://blog.golang.org/2010/09/go-concurrency-patterns-timing-out-and.html">Timing out, moving on</a>" for a detailed discussion of goroutines and channels.
 </p>
 </div>
 
 <div class="slide">
-<h1>Saving on demand</h1>
+<h1>Saving separately</h1>
 <p>
-We can use a channel of boolean values to tell <code>saveLoop</code> when
-the data structure is "dirty", and a <code>save</code> is required.
+Instead of making a function call to save each record to disk,
+let's have <code>Put</code> send to a buffered channel:
+</p>
+<pre>
+func (s *URLStore) Put(url string) string {
+        for {
+                key := genKey(s.count)
+                s.count++
+                if ok := s.Set(key, url); ok {
+                        <em>s.save <- record{key, url}</em>
+                        return key
+                }
+        }
+        panic("shouldn't get here")
+}
+</pre>
+<p>
+This necessitates a new field on <code>URLStore</code> named <code>save</code>:
 </p>
 <pre>
 type URLStore struct {
-	mu       sync.Mutex
-	urls     *URLMap
-	count    int
-	filename string
-<em>	dirty    chan bool</em>
+        urls  map[string]string
+        mu    sync.RWMutex
+        count int
+        <em>save  chan record</em>
 }
 </pre>
 </div>
 
 <div class="slide">
-<h1>Saving on demand</h1>
+<h1>Saving separately</h1>
 <p>
-Now we make <code>saveLoop</code> wait until a value is received from
-<code>dirty</code> before saving.
+At the other end of the <code>save</code> channel we must have a receiver.
+</p>
+<p>
+This new method, <code>saveLoop</code>, will run in a separate goroutine
+receiving <code>record</code> values and writing them to a file.
+</p>
 <pre>
-func (s *URLStore) saveLoop() {
-	for {
-<em>		<-s.dirty</em>
-		if err := s.save(); err != nil {
-			log.Println("URLStore:", err)
-		}
-		time.Sleep(saveTimeout)
-	}
+func (s *URLStore) saveLoop(filename string) {
+        f, err := os.Open(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+        if err != nil {
+                log.Println("URLStore:", err)
+                return
+        }
+        e := gob.NewEncoder(f)
+        for {
+		r := <-save
+		if err := e.Encode(r); err != nil {
+                        log.Println("URLStore:", err)
+                }
+        }
 }
 </pre>
-<p>
-Note that while <code>dirty</code> carries boolean values
-(<code>true</code> or <code>false</code>), 
-we're not actually concerned with the value itself.
-It's the presence of <i>any</i> value, true or false, that tells
-<code>saveLoop</code> when to <code>save</code>.
-</p>
 </div>
 
 <div class="slide">
-<h1>Saving on demand</h1>
+<h1>Saving separately</h1>
 <p>
-We add a non-blocking send to the <code>Put</code> method:
+We need to modify the <code>NewURLStore</code> function to launch the
+<code>saveLoop</code> goroutine (and remove the now-unnecessary file opening
+code):
 </p>
 <pre>
-func (s *URLStore) Put(url string) (key string) {
-<span>	... (generate key)</span>
-        s.urls.Set(key, url)
-	s.mu.Unlock()
-<em>	_ = s.dirty <- true</em>
-	return
-}
-</pre>
-<p>
-The <code>_</code> is a write-only variable; the value will be thrown away.
-We don't care whether the message is received or not.
-</p>
-</div>
+<em>const saveQueueLength = 1000</em>
 
-<div class="slide">
-<h1>Saving on demand</h1>
-<p>
-We make <code>dirty</code> a buffered channel with space for just one value,
-so that if a send occurs while <code>saveLoop</code> is busy 
-(either saving or sleeping) the value will still be received when 
-<code>saveLoop</code> becomes ready.
-</p>
-<pre>
 func NewURLStore(filename string) *URLStore {
-	s := &URLStore{
-		urls:     NewURLMap(),
-		filename: filename,
-<em>		dirty:    make(chan bool, 1),</em>
-	}
-	if err := s.load(); err != nil {
-		log.Println("URLStore:", err)
-	}
-	go s.saveLoop()
-	return s
+        s := &URLStore{
+                urls: make(map[string]string),
+                <em>save: make(chan record, saveQueueLength),</em>
+        }
+        <em>if err := s.load(filename); err != nil {
+                log.Println("URLStore:", err)
+        }
+        go s.saveLoop(filename)</em>
+        return s
 }
 </pre>
 </div>
+
 
 <div class="slide">
 <h1>Demonstration</h1>
@@ -1039,7 +913,7 @@ These slides are available at <a href="http://wh3rd.net/practical-go/">http://wh
 </div>
 
 <div class="slide">
-<h1>Command-line flags</h1>
+<h1>An aside: Command-line flags</h1>
 <p>
 Go's <code>flag</code> package makes it easy to handle command-line flags.
 Let's use it to replace the constants we have littered through our code so
@@ -1050,9 +924,9 @@ We first create some global variables to hold the flag values:
 </p>
 <pre>
 import (
-	"flag"
+<em>	"flag"</em>
 	"fmt"
-<em>	"http"</em>
+	"http"
 )
 
 var (
@@ -1064,7 +938,7 @@ var (
 </div>
 
 <div class="slide">
-<h1>Command-line flags</h1>
+<h1>An aside: Command-line flags</h1>
 <p>
 Then we can add <code>flag.Parse()</code> to the <code>main</code> function,
 and instantiate the <code>URLStore</code> after the flags have been parsed
@@ -1108,139 +982,48 @@ cache Get requests, and pass Puts through to the master.
 </div>
 
 <div class="slide">
-<h1>RPC: an aside</h1>
+<h1>Making URLStore an RPC service</h1>
 <p>
 Go's <code>rpc</code> package provides a convenient means of making function
 calls over a network connection.
 </p>
 <p>
-To serve, define a type with the methods you want to make accesible to RPC:
+Given a value, <code>rpc</code> will expose to the network any of the value's
+methods that meet this function signature:
 </p>
 <pre>
-type Args struct { A, B int }
-type Arith int
-func (t *Arith) Multiply(args *Args, reply *int) os.Error {
-	*reply = args.A * args.B
-	return nil
-}
+func (t T) Name(args *ArgType, reply *ReplyType) os.Error
 </pre>
 <p>
-Then <code>Register</code> them with the <code>rpc</code> module, and start
-an HTTP server (for RPC-over-HTTP).
+To make <code>URLStore</code> an RPC service we need to alter the
+<code>Put</code> and <code>Get</code> methods so that they match the
+function signature expected by <code>rpc</code>:
 </p>
 <pre>
-rpc.Register(new(Arith))
-rpc.HandleHTTP()
-http.ListenAndServe(":8080", nil)
-</pre>
-</div>
+func (s *URLStore) Get(key, url *string) os.Error
 
-<div class="slide">
-<h1>RPC: an aside</h1>
-<p>
-On the client side, dial the server:
-</p>
-<pre>
-client, err := rpc.DialHTTP("tcp", "localhost:8080")
-if err != nil {
-	log.Exit("dialing:", err)
-}
+func (s *URLStore) Put(url, key *string) os.Error
 </pre>
 <p>
-Set up args and reply values, and make the RPC <code>Call</code>:
+And, of course, we need to change the call sites to call these functions
+appropriately.
 </p>
-<pre>
-args := Args{7,8}
-var reply int
-err = client.Call("Arith.Multiply", &args, &reply)
-if err != nil {
-	log.Exit("arith error:", err)
-}
-fmt.Printf("Arith: %d*%d=%d", args.A, args.B, *reply)
-</pre>
+<p class="eg">
+These changes are described in full by some slides at the end of this 
+presentation. They have been omitted here for time reasons.
+</p>
 </div>
 
 <div class="slide">
 <h1>Making URLStore an RPC service</h1>
-<p>
-To make <code>URLStore</code> an RPC services, we need to alter the 
-<code>Get</code> and <code>Put</code> methods to be <code>rpc</code>-friendly.
-The function signatures change, and now return an <code>os.Error</code> value.
-</p>
-<p>
-The <code>Get</code> method can return an explicit error when the provided key 
-is not found:
-</p>
-<pre>
-func (s *URLStore) Get(key, url *string) <em>os.Error</em> {
-<em>	if u := </em>s.urls.Get(*key)<em>; u != "" {
-		*url = u
-		return nil
-	}
-	return os.NewError("key not found")</em>
-}
-</pre>
-<p>
-Beyond the function signature, the <code>Put</code> method barely changes
-in its actual code (not shown here):
-</p>
-<pre>
-func (s *URLStore) Put(url, key *string) <em>os.Error</em>
-</pre>
-</div>
-
-<div class="slide">
-<h1>Making URLStore an RPC service</h1>
-<p>
-In turn, the HTTP handlers must be modfied to accommodate the changes to
-<code>URLStore</code>.
-</p>
-<p>
-The <code>Redirect</code> handler now returns the error string provided by
-the <code>URLStore</code>:
-</p>
-<pre>
-func Redirect(w http.ResponseWriter, r *http.Request) {
-	key := r.URL.Path[1:]
-<em>	var url string</em>
-	if <em>err</em> := store.Get(<em>&</em>key, <em>&</em>url); err != nil {
-<em>	        http.Error(w, err.String(), http.StatusInternalServerError)</em>
-	        return
-	}
-	http.Redirect(w, r, url, http.StatusFound)
-}
-</pre>
-</div>
-
-<div class="slide">
-<h1>Making URLStore an RPC service</h1>
-<p>The <code>Add</code> handler changes in much the same way:</p>
-<pre>
-func Add(w http.ResponseWriter, r *http.Request) {
-	url := r.FormValue("url")
-	if url == "" {
-	        fmt.Fprint(w, AddForm)
-	        return
-	}
-<em>	var key string</em>
-	if <em>err</em> := store.Put(<em>&</em>url, <em>&</em>key); err != nil {
-<em>	        http.Error(w, err.String(), http.StatusInternalServerError)</em>
-	        return
-	}
-	fmt.Fprintf(w, "http://%s/%s", *hostname, key)
-}
-</pre>
-</div>
-
-<div class="slide">
-<h1>Making URLStore an RPC service</h1>
-<p>Finally, we can register the <code>URLStore</code> as an <code>rpc</code>
-service. First we'll add a command-line flag to enable it:</p>
+<p>Add a command-line flag to enable the RPC server:</p>
 <pre>
 rpcEnabled = flag.Bool("rpc", false, "enable RPC server")
 </pre>
 <p>
-And add the registration to <code>main</code>:
+And then <code>Register</code> the <code>URLStore</code> with the
+<code>rpc</code> package and set up the RPC-over-HTTP handler with
+<code>HandleHTTP</code>.
 </p>
 <pre>
 func main() {
@@ -1364,15 +1147,15 @@ These slides are available at <a href="http://wh3rd.net/practical-go/">http://wh
 <div class="slide">
 <h1>A caching ProxyStore</h1>
 <p>
-We already have the perfect data structure for caching this data, the
-<code>URLMap</code>.
+We already have the perfect data structure for caching this data,
+the <code>URLStore</code>.
 </p>
 <p>
-Let's add a <code>URLMap</code> instance to <code>ProxyStore</code>:
+Let's add a <code>URLStore</code> instance to <code>ProxyStore</code>:
 </p>
 <pre>
 type ProxyStore struct {
-<em>	urls   *URLMap</em>
+<em>	urls   *URLStore</em>
 	client *rpc.Client
 }
 
@@ -1381,9 +1164,13 @@ func NewProxyStore(addr string) *ProxyStore {
 	if err != nil {
 	        log.Println("ProxyStore:", err)
 	}
-	return &ProxyStore{<em>urls: NewURLMap()</em>, client: client}
+	return &ProxyStore{<em>urls: NewURLStore("")</em>, client: client}
 }
 </pre>
+<p>
+And we must modify the <code>URLStore</code> so that it doesn't try to write
+or read from the file if an empty filename is given.
+</p>
 </div>
 
 <div class="slide">
@@ -1395,15 +1182,14 @@ it should make the RPC call, and update its local cache with the result.
 </p>
 <pre>
 func (s *ProxyStore) Get(key, url *string) os.Error {
-<em>	if u := s.urls.Get(*key); u != "" {
-	        *url = u
-	        return nil
-	}</em>
-	err := s.client.Call("Store.Get", key, url)
-<em>	if err == nil {
-	        s.urls.Set(*key, *url)
-	}</em>
-	return err
+        <em>if err := s.urls.Get(key, url); err == nil {
+                return nil
+        }</em>
+        if err := s.client.Call("Store.Get", key, url); err != nil {
+                return err
+        }
+        <em>s.urls.Set(key, url)</em>
+        return nil
 }
 </pre>
 </div>
@@ -1416,11 +1202,11 @@ successful RPC <code>Put</code>.
 </p>
 <pre>
 func (s *ProxyStore) Put(url, key *string) os.Error {
-	err := s.client.Call("Store.Put", url, key)
-<em>	if err == nil {
-	        s.urls.Set(*key, *url)
-	}</em>
-	return err
+        if err := s.client.Call("Store.Put", url, key); err != nil {
+                return err
+        }
+        <em>s.urls.Set(key, url)</em>
+        return nil
 }
 </pre>
 </div>
@@ -1458,9 +1244,7 @@ be improved:
     servers by key.
 <li>Deletion: to support deletion of shortened URLs, the interactions 
     bewteen master and slave would need to be made more complex.
-<li>Storage: rather than re-writing the whole database on each call to
-    <code>save</code>, it would be more efficient to write each new URL to
-    disk incrementally.
+<li>Storage: a buffer could be used to batch write operations.
 </ul>
 </div>
 
@@ -1470,6 +1254,84 @@ be improved:
 <p>adg@golang.org</p>
 <p>http://wh3rd.net/practical-go/</p>
 <p><img src="bumper640x360.png"></p>
+</div>
+
+<div class="slide">
+<h1>Additional RPC slides follow</h1>
+</div>
+
+<div class="slide">
+<h1>Making URLStore an RPC service</h1>
+<p>
+To make <code>URLStore</code> an RPC services, we need to alter the 
+<code>Get</code> and <code>Put</code> methods to be <code>rpc</code>-friendly.
+The function signatures change, and now return an <code>os.Error</code> value.
+</p>
+<p>
+The <code>Get</code> method can return an explicit error when the provided key 
+is not found:
+</p>
+<pre>
+func (s *URLStore) Get(key, url *string) os.Error {
+        s.mu.RLock()
+        defer s.mu.RUnlock()
+        if u, ok := s.urls[*key]; ok {
+                *url = u
+                return nil
+        }
+        return os.NewError("key not found")
+}
+</pre>
+<p>
+Beyond the function signature, the <code>Put</code> method barely changes
+in its actual code (not shown here):
+</p>
+<pre>
+func (s *URLStore) Put(url, key *string) <em>os.Error</em>
+</pre>
+</div>
+
+<div class="slide">
+<h1>Making URLStore an RPC service</h1>
+<p>
+In turn, the HTTP handlers must be modfied to accommodate the changes to
+<code>URLStore</code>.
+</p>
+<p>
+The <code>Redirect</code> handler now returns the error string provided by
+the <code>URLStore</code>:
+</p>
+<pre>
+func Redirect(w http.ResponseWriter, r *http.Request) {
+	key := r.URL.Path[1:]
+<em>	var url string</em>
+	if <em>err</em> := store.Get(<em>&</em>key, <em>&</em>url); err != nil {
+<em>	        http.Error(w, err.String(), http.StatusInternalServerError)</em>
+	        return
+	}
+	http.Redirect(w, r, url, http.StatusFound)
+}
+</pre>
+</div>
+
+<div class="slide">
+<h1>Making URLStore an RPC service</h1>
+<p>The <code>Add</code> handler changes in much the same way:</p>
+<pre>
+func Add(w http.ResponseWriter, r *http.Request) {
+	url := r.FormValue("url")
+	if url == "" {
+	        fmt.Fprint(w, AddForm)
+	        return
+	}
+<em>	var key string</em>
+	if <em>err</em> := store.Put(<em>&</em>url, <em>&</em>key); err != nil {
+<em>	        http.Error(w, err.String(), http.StatusInternalServerError)</em>
+	        return
+	}
+	fmt.Fprintf(w, "http://%s/%s", *hostname, key)
+}
+</pre>
 </div>
 
 </body>

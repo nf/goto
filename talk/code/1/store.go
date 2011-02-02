@@ -2,102 +2,84 @@ package main
 
 import (
 	"gob"
-	"io"
 	"log"
 	"os"
 	"sync"
 )
 
 type URLStore struct {
-	mu       sync.Mutex
-	urls     *URLMap
+	urls     map[string]string
+	mu       sync.RWMutex
 	count    int
-	filename string
+	file     *os.File
+}
+
+type record struct {
+	Key, URL string
 }
 
 func NewURLStore(filename string) *URLStore {
-	s := &URLStore{
-		urls:     NewURLMap(),
-		filename: filename,
+	s := &URLStore{urls: make(map[string]string)}
+	f, err := os.Open(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+	if err != nil {
+		log.Exit("URLStore:", err)
 	}
+	s.file = f
 	if err := s.load(); err != nil {
 		log.Println("URLStore:", err)
 	}
 	return s
 }
 
-func (s *URLStore) Put(url string) (key string) {
-	s.mu.Lock()
-	for {
-		key = genKey(s.count)
-		s.count++
-		if u := s.urls.Get(key); u == "" {
-			break
-		}
-	}
-	s.urls.Set(key, url)
-	if err := s.save(); err != nil {
-		log.Println("URLStore:", err)
-	}
-	s.mu.Unlock()
-	return
+func (s *URLStore) Get(key string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.urls[key]
 }
 
-func (s *URLStore) Get(key string) (url string) {
-	return s.urls.Get(key)
+func (s *URLStore) Set(key, url string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, present := s.urls[key]; present {
+		return false
+	}
+	s.urls[key] = url
+	return true
+}
+
+func (s *URLStore) Put(url string) string {
+	for {
+		key := genKey(s.count)
+		s.count++
+		if ok := s.Set(key, url); ok {
+			if err := s.save(key, url); err != nil {
+				log.Println("URLStore:", err)
+			}
+			return key
+		}
+	}
+	panic("shouldn't get here")
 }
 
 func (s *URLStore) load() os.Error {
-	f, err := os.Open(s.filename, os.O_RDONLY, 0)
-	if err != nil {
+	if _, err := s.file.Seek(0, 0); err != nil {
 		return err
 	}
-	defer f.Close()
-	return s.urls.ReadFrom(f)
-}
-
-func (s *URLStore) save() os.Error {
-	f, err := os.Open(s.filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	if err != nil {
-		return err
+	d := gob.NewDecoder(s.file)
+	var err os.Error
+	for err == nil {
+		var r record
+		if err = d.Decode(&r); err == nil {
+			s.Set(r.Key, r.URL)
+		}
 	}
-	defer f.Close()
-	return s.urls.WriteTo(f)
+	if err == os.EOF {
+		return nil
+	}
+	return err
 }
 
-
-type URLMap struct {
-	urls map[string]string
-	mu   sync.RWMutex
-}
-
-func NewURLMap() *URLMap {
-	return &URLMap{urls: make(map[string]string)}
-}
-
-func (m *URLMap) Set(key, url string) {
-	m.mu.Lock()
-	m.urls[key] = url
-	m.mu.Unlock()
-}
-
-func (m *URLMap) Get(key string) (url string) {
-	m.mu.RLock()
-	url = m.urls[key]
-	m.mu.RUnlock()
-	return
-}
-
-func (m *URLMap) WriteTo(w io.Writer) os.Error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	e := gob.NewEncoder(w)
-	return e.Encode(m.urls)
-}
-
-func (m *URLMap) ReadFrom(r io.Reader) os.Error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	d := gob.NewDecoder(r)
-	return d.Decode(&m.urls)
+func (s *URLStore) save(key, url string) os.Error {
+	e := gob.NewEncoder(s.file)
+	return e.Encode(record{key, url})
 }
