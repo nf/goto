@@ -171,7 +171,7 @@ func (s *URLStore) Get(key string) string {
 </pre>
 <p>
 The <code>Set</code> method takes the write lock and updates the url map.
-If the key is already present a boolean <code>false</code> value is
+If the key is already present, a boolean <code>false</code> value is
 returned and the map is not updated.
 </p>
 <pre>
@@ -210,7 +210,7 @@ We can use <code>defer</code> to simplify the <code>Set</code> and
 <code>Get</code> methods.
 </p>
 <p class="eg">
-There's more to defer.
+There's much more to know about defer.
 See the "<a href="http://blog.golang.org/2010/08/defer-panic-and-recover.html">Defer, Panic, and Recover</a>" blog post for an in-depth discussion.
 </p>
 </div>
@@ -218,8 +218,8 @@ See the "<a href="http://blog.golang.org/2010/08/defer-panic-and-recover.html">D
 <div class="slide">
 <h1>Setter and Getter methods</h1>
 <p>
-The <code>Get</code> method can avoid using the local <code>url</code>
-variable and return the map value directly:
+Using defer, the <code>Get</code> method can avoid using the local
+<code>url</code> variable and return the map value directly:
 </p>
 <pre>
 func (s *URLStore) Get(key string) string {
@@ -565,30 +565,6 @@ Go data structures.
 <div class="slide">
 <h1>Persistent Storage: URLStore</h1>
 <p>
-Let's create a new data type, <code>record</code>, that describes how
-single key/url pair will be stored on disk:
-</p>
-<pre>
-type record struct {
-        Key, URL string
-}
-</pre>
-<p>
-And a new <code>save</code> method that writes a given key and url
-to disk as a gob-encoded <code>record</code>:
-</p>
-<pre>
-func (s *URLStore) save(key, url string) os.Error {
-        e := gob.NewEncoder(s.file)
-        return e.Encode(record{key, url})
-}
-</pre>
-<p>But what is this new <code>file</code> field of <code>URLStore</code>?</p>
-</div>
-
-<div class="slide">
-<h1>Persistent Storage: URLStore</h1>
-<p>
 The new <code>file</code> field (of type <code>*os.File</code>)
 will be a handle to an open file that can be used for writing and reading.
 </p>
@@ -610,9 +586,9 @@ The <code>*os.File</code> type implements both <code>io.Reader</code> and
 <div class="slide">
 <h1>Persistent Storage: URLStore</h1>
 <p>
-The <code>NewURLStore</code> now takes a <code>filename</code> argument,
-<code>Open</code>s the file, and stores the <code>*os.File</code> value
-in the <code>file</code> field:
+The <code>NewURLStore</code> function now takes a <code>filename</code>
+argument, <code>Open</code>s the file, and stores the <code>*os.File</code>
+value in the <code>file</code> field:
 <pre>
 func NewURLStore(<code>filename string</code>) *URLStore {
         s := &URLStore{urls: make(map[string]string)}
@@ -622,6 +598,29 @@ func NewURLStore(<code>filename string</code>) *URLStore {
         }
 	s.file = f</em>
         return s
+}
+</pre>
+</div>
+
+<div class="slide">
+<h1>Persistent Storage: URLStore</h1>
+<p>
+Let's create a new data type, <code>record</code>, which describes how
+single key/url pair will be stored on disk:
+</p>
+<pre>
+type record struct {
+        Key, URL string
+}
+</pre>
+<p>
+The new <code>save</code> method writes a given key and url
+to disk as a gob-encoded <code>record</code>:
+</p>
+<pre>
+func (s *URLStore) save(key, url string) os.Error {
+        e := gob.NewEncoder(s.file)
+        return e.Encode(record{key, url})
 }
 </pre>
 </div>
@@ -678,7 +677,7 @@ func NewURLStore(filename string) *URLStore {
 
 <div class="slide">
 <h1>Persistent Storage: URLStore</h1>
-<p>And call <code>save</code> each time a new URL is added:</p>
+<p>And <code>save</code> each new URL as it is <code>Put</code>:</p>
 <pre>
 func (s *URLStore) Put(url string) string {
         for {
@@ -722,16 +721,17 @@ Consider this pathological situation:
 </p>
 <ul>
 <li>Many clients attempt to add URLs simultaneously.
-<li>Even though concurrent may update the map safely, the disk writes
-    may happen simultaneously. (Depending on your OS this may cause
-    corruption.)
+<li>Even though we may safely update the map concurrently,
+    the disk writes may happen simultaneously.<br>
+    Depending on the characteristics of your OS, this may cause corruption.
 <li>Even if the writes do not collide, each client must wait for their
     data to be written to disk before their <code>Put</code> will return.
-<li>A single write system call for each <code>Put</code> is inefficient.
+<li>Therefore, on a heavily I/O-loaded system, clients will wait longer
+    than necessary for their <code>Add</code> requests to go through.
 </ul>
 <p>
-To improve this situation we should decouple the <code>save</code> process 
-from the <code>Put</code> process.
+To remedy these issues, we should decouple the <code>Put</code> and 
+<code>save</code> processes.
 </p>
 </div>
 
@@ -821,7 +821,7 @@ See the blog posts "<a href="http://blog.golang.org/2010/07/share-memory-by-comm
 <h1>Saving separately</h1>
 <p>
 Instead of making a function call to save each record to disk,
-let's have <code>Put</code> send to a buffered channel:
+<code>Put</code> can send a <code>record</code> to a buffered channel:
 </p>
 <pre>
 func (s *URLStore) Put(url string) string {
@@ -855,15 +855,14 @@ type URLStore struct {
 At the other end of the <code>save</code> channel we must have a receiver.
 </p>
 <p>
-This new method, <code>saveLoop</code>, will run in a separate goroutine
-receiving <code>record</code> values and writing them to a file.
+This new method, <code>saveLoop</code>, will run in a separate goroutine.<br>
+It receives <code>record</code> values and writes them to a file.
 </p>
 <pre>
 func (s *URLStore) saveLoop(filename string) {
         f, err := os.Open(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
         if err != nil {
-                log.Println("URLStore:", err)
-                return
+                log.Exit("URLStore:", err)
         }
         e := gob.NewEncoder(f)
         for {
@@ -916,11 +915,7 @@ These slides are available at <a href="http://wh3rd.net/practical-go/">http://wh
 <h1>An aside: Command-line flags</h1>
 <p>
 Go's <code>flag</code> package makes it easy to handle command-line flags.
-Let's use it to replace the constants we have littered through our code so
-far.
-</p>
-<p>
-We first create some global variables to hold the flag values:
+Let's use it to replace the constants we have in our code so far.
 </p>
 <pre>
 import (
@@ -928,11 +923,15 @@ import (
 	"fmt"
 	"http"
 )
-
+</pre>
+<p>
+We first create some global variables to hold the flag values:
+</p>
+<pre>
 var (
-  listenAddr = flag.String("http", ":9980", "http listen address")
-  dataFile   = flag.String("file", "store.gob", "data store file name")
-  hostname   = flag.String("host", "localhost", "http host name")
+	listenAddr = flag.String("http", ":9980", "http listen address")
+	dataFile   = flag.String("file", "store.gob", "data store file name")
+	hostname   = flag.String("host", "localhost", "http host name")
 )
 </pre>
 </div>
@@ -988,16 +987,16 @@ Go's <code>rpc</code> package provides a convenient means of making function
 calls over a network connection.
 </p>
 <p>
-Given a value, <code>rpc</code> will expose to the network any of the value's
-methods that meet this function signature:
+Given a value, <code>rpc</code> will expose to the network the value's methods
+that meet this function signature:
 </p>
 <pre>
 func (t T) Name(args *ArgType, reply *ReplyType) os.Error
 </pre>
 <p>
 To make <code>URLStore</code> an RPC service we need to alter the
-<code>Put</code> and <code>Get</code> methods so that they match the
-function signature expected by <code>rpc</code>:
+<code>Put</code> and <code>Get</code> methods so that they match this
+function signature:
 </p>
 <pre>
 func (s *URLStore) Get(key, url *string) os.Error
@@ -1018,7 +1017,7 @@ presentation. They have been omitted here for time reasons.
 <h1>Making URLStore an RPC service</h1>
 <p>Add a command-line flag to enable the RPC server:</p>
 <pre>
-rpcEnabled = flag.Bool("rpc", false, "enable RPC server")
+var rpcEnabled = flag.Bool("rpc", false, "enable RPC server")
 </pre>
 <p>
 And then <code>Register</code> the <code>URLStore</code> with the
@@ -1078,69 +1077,9 @@ func (s *ProxyStore) Put(url, key *string) os.Error {
         return s.client.Call("Store.Put", url, key)
 }
 </pre>
-</div>
-
-<div class="slide">
-<h1>Integrating ProxyStore</h1>
-<p>
-Now we want to be able to use <code>ProxyStore</code> with the web front-end,
-in the place of <code>URLStore</code>.
-</p>
-<p>
-Since they both implement the same <code>Get</code> and <code>Put</code>
-methods, we can specify an interface to generalize their behavior:
-</p>
-<pre>
-type Store interface {
-        Put(url, key *string) os.Error
-        Get(key, url *string) os.Error
-}
-</pre>
-<p>
-Now our global variable <code>store</code> can be of type <code>Store</code>:
-</p>
-<pre>
-var store Store
-</pre>
-</div>
-
-<div class="slide">
-<h1>Integrating ProxyStore</h1>
-<p>
-Our <code>main</code> function can instantiate either a <code>URLStore</code>
-or <code>ProxyStore</code> depending on a new command-line flag:
-</p>
-<pre>
-masterAddr = flag.String("master", "", "RPC master address")
-</pre>
-<pre>
-func main() {
-        flag.Parse() 
-        if *masterAddr != "" {
-                store = NewProxyStore(*masterAddr)
-        } else {
-                store = NewURLStore(*dataFile)
-        }
-<span>	...</span>
-}
-</pre>
-<p>
-The rest of the front-end code continues to work as before.
-It need not be aware of the <code>Store</code> interface.
-</p>
-</div>
-
-<div class="slide">
-<h1>Demonstration</h1>
-<p>
-Now we can watch requests being passed from the slave to the master.
-</p>
 <p>
 But there's something missing: the slave must cache the data it 
 gets from the master, otherwise it provides no benefit.
-</p>
-<p class="eg">
-These slides are available at <a href="http://wh3rd.net/practical-go/">http://wh3rd.net/practical-go/</a>
 </p>
 </div>
 
@@ -1168,8 +1107,8 @@ func NewProxyStore(addr string) *ProxyStore {
 }
 </pre>
 <p>
-And we must modify the <code>URLStore</code> so that it doesn't try to write
-or read from the file if an empty filename is given.
+(And we must modify the <code>URLStore</code> so that it doesn't try to write
+to or read from disk if an empty filename is given.)
 </p>
 </div>
 
@@ -1211,6 +1150,57 @@ func (s *ProxyStore) Put(url, key *string) os.Error {
 </pre>
 </div>
 
+
+<div class="slide">
+<h1>Integrating ProxyStore</h1>
+<p>
+Now we want to be able to use <code>ProxyStore</code> with the web front-end,
+in the place of <code>URLStore</code>.
+</p>
+<p>
+Since they both implement the same <code>Get</code> and <code>Put</code>
+methods, we can specify an interface to generalize their behavior:
+</p>
+<pre>
+type Store interface {
+        Put(url, key *string) os.Error
+        Get(key, url *string) os.Error
+}
+</pre>
+<p>
+Now our global variable <code>store</code> can be of type <code>Store</code>:
+</p>
+<pre>
+var store Store
+</pre>
+</div>
+
+<div class="slide">
+<h1>Integrating ProxyStore</h1>
+<p>
+Our <code>main</code> function can instantiate either a <code>URLStore</code>
+or <code>ProxyStore</code> depending on a new command-line flag:
+</p>
+<pre>
+var masterAddr = flag.String("master", "", "RPC master address")
+</pre>
+<pre>
+func main() {
+        flag.Parse() 
+        if *masterAddr != "" {
+                store = NewProxyStore(*masterAddr)
+        } else {
+                store = NewURLStore(*dataFile)
+        }
+<span>	...</span>
+}
+</pre>
+<p>
+The rest of the front-end code continues to work as before.
+It does not need to be aware of the <code>Store</code> interface.
+</p>
+</div>
+
 <div class="slide">
 <h1>Final demonstration</h1>
 <p>
@@ -1245,6 +1235,23 @@ be improved:
 <li>Deletion: to support deletion of shortened URLs, the interactions 
     bewteen master and slave would need to be made more complex.
 <li>Storage: a buffer could be used to batch write operations.
+</ul>
+</div>
+
+<div class="slide">
+<h1>Go Resources</h1>
+<ul>
+<li><b>http://golang.org/</b> - the official Go homepage.
+	<ul>
+	<li>Lots of documentation (read the language spec!),
+	<li>Tutorials (and codelabs, codewalks),
+	<li>The Go Playground (write, compile, and run Go code from a browser),
+	<li>and more.
+	</ul>
+<li><b>http://blog.golang.org/</b> - the official Go blog.
+<li><b>http://godashboard.appspot.com/package</b> - community-written Go libraries.
+<li><b>http://groups.google.com/group/golang-nuts</b> - the Go users mailing list.
+<li><b>#go-nuts</b> on <b>irc.freenode.net</b> - realtime Go help.
 </ul>
 </div>
 
