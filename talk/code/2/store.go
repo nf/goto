@@ -82,8 +82,7 @@ func (s *URLStore) load(filename string) os.Error {
 func (s *URLStore) saveLoop(filename string) {
 	f, err := os.Open(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
-		log.Println("URLStore:", err)
-		return
+		log.Exit("URLStore:", err)
 	}
 	e := gob.NewEncoder(f)
 	for {
