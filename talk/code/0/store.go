@@ -5,7 +5,6 @@ import "sync"
 type URLStore struct {
 	urls  map[string]string
 	mu    sync.RWMutex
-	count int
 }
 
 func NewURLStore() *URLStore {
@@ -28,13 +27,18 @@ func (s *URLStore) Set(key, url string) bool {
 	return true
 }
 
+func (s *URLStore) Count() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.urls)
+}
+
 func (s *URLStore) Put(url string) string {
 	for {
-		key := genKey(s.count)
-		s.count++
+		key := genKey(s.Count())
 		if ok := s.Set(key, url); ok {
 			return key
 		}
 	}
-	return ""
+	panic("shouldn't get here")
 }

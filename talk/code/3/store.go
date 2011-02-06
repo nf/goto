@@ -18,7 +18,6 @@ type Store interface {
 type URLStore struct {
 	urls  map[string]string
 	mu    sync.RWMutex
-	count int
 	save  chan record
 }
 
@@ -58,10 +57,15 @@ func (s *URLStore) Set(key, url *string) os.Error {
 	return nil
 }
 
+func (s *URLStore) Count() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.urls)
+}
+
 func (s *URLStore) Put(url, key *string) os.Error {
 	for {
-		*key = genKey(s.count)
-		s.count++
+		*key = genKey(s.Count())
 		if err := s.Set(key, url); err == nil {
 			break
 		}
@@ -94,7 +98,7 @@ func (s *URLStore) load(filename string) os.Error {
 func (s *URLStore) saveLoop(filename string) {
 	f, err := os.Open(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
-		log.Exit("URLStore:", err)
+		log.Fatal("URLStore:", err)
 	}
 	e := gob.NewEncoder(f)
 	for {

@@ -32,6 +32,7 @@
 <li>Static typing</li>
 <li>Consistent standard library</li>
 <li>Self-documenting (and well-documented)</li>
+<li>Free and Open Source (BSD licensed)</li>
 </ul>
 </div>
 
@@ -157,7 +158,7 @@ We must now interact with the <code>URLStore</code> through <code>Set</code>
 and <code>Get</code> methods.
 </p>
 <p>
-The <code>Get</code> method takes the read lock with <code>RLock</code>, and
+The <code>Get</code> method takes the read lock with <code>mu.RLock</code>, and
 returns the URL as a string. If the key is present in the map, the
 zero value for the string type (an empty string) will be returned.
 </p>
@@ -169,10 +170,17 @@ func (s *URLStore) Get(key string) string {
         return url
 }
 </pre>
+</div>
+
+<div class="slide">
+<h1>Setter and Getter methods</h1>
 <p>
 The <code>Set</code> method takes the write lock and updates the url map.
-If the key is already present, a boolean <code>false</code> value is
-returned and the map is not updated.
+</p>
+<p>
+If the key is already present, <code>Set</code> returns a boolean 
+<code>false</code> value and the map is not updated.
+(Later, We will use this behavior to ensure that each URL has a unique key.)
 </p>
 <pre>
 func (s *URLStore) Set(key, url string) bool {
@@ -262,7 +270,9 @@ named <code>NewXXX</code> that returns an intialized instance of the type.
 </p>
 <pre>
 func NewURLStore() *URLStore {
-	return &URLStore{urls: make(map[string]string)}
+	return &URLStore{
+		urls: make(map[string]string),
+	}
 }
 </pre>
 </div>
@@ -277,7 +287,9 @@ s := NewURLStore()
 </pre>
 <p>Setting a URL by key:</p>
 <pre>
-s.Set("a", "http://google.com")
+if s.Set("a", "http://google.com") {
+	// success
+}
 </pre>
 <p>Getting a URL by key:</p>
 <pre>
@@ -292,25 +304,25 @@ if url := s.Get("a"); url != "" {
 <div class="slide">
 <h1>Shortening URLs</h1>
 <p>
-We have the <code>Get</code> method for retrieving URLs.
+We already have the <code>Get</code> method for retrieving URLs.
 Let's create a <code>Put</code> method that takes a URL,
-stores the URL in the map under a corresponding key, and returns the key.
+stores the URL under a corresponding key, and returns that key.
 </p>
 <pre>
-type URLStore struct {
-	<span>...</span>
-	count int
-}
-
 func (s *URLStore) Put(url string) string {
         for {
-                key := genKey(s.count)
-                s.count++
-                if ok := s.Set(key, url); ok {
+                key := genKey(s.Count())
+                if s.Set(key, url) {
                         return key
                 }
         }
 	panic("shouldn't get here")
+}
+
+func (s *URLStore) Count() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.urls)
 }
 </pre>
 <p>
@@ -354,7 +366,7 @@ func main()  {
 <div class="slide">
 <h1>HTTP Handlers</h1>
 <p>
-Goto has two HTTP handlers:
+Our program will have two HTTP handlers:
 </p>
 <ul>
 <li><code>Redirect</code>, which redirects short URL requests, and
@@ -392,7 +404,7 @@ func Add(w http.ResponseWriter, r *http.Request) {
 </pre>
 <p>
 But what is <code>store</code>?
-It's a global variable pointing to an intantiation of <code>URLStore</code>:
+It's a global variable pointing to an instance of <code>URLStore</code>:
 </p>
 <pre>
 var store = NewURLStore()
@@ -467,11 +479,6 @@ represents HTTP code 302 ("Found").
 <ul>
 <li><a href="https://github.com/nf/goto/tree/master/talk/code/0/">https://github.com/nf/goto/tree/master/talk/code/0/</a></li>
 </ul>
-<!-- TODO: new diagram -->
-<p>
-The <code>http</code> package uses Go's concurrency features 
-"behind the scenes". We will use goroutines and channels explicitly later.
-</p>
 <p class="eg">
 These slides are available at <a href="http://wh3rd.net/practical-go/">http://wh3rd.net/practical-go/</a>
 </p>
@@ -565,46 +572,6 @@ Go data structures.
 <div class="slide">
 <h1>Persistent Storage: URLStore</h1>
 <p>
-The new <code>file</code> field (of type <code>*os.File</code>)
-will be a handle to an open file that can be used for writing and reading.
-</p>
-<pre>
-type URLStore struct {
-        urls     map[string]string
-        mu       sync.RWMutex
-        count    int
-        <em>file     *os.File</em>
-}
-</pre>
-<p>
-The <code>*os.File</code> type implements both <code>io.Reader</code> and
-<code>io.Writer</code>, and can therefore be used with both the
-<code>gob.NewDecoder</code> and <code>gob.NewEncoder</code> functions.
-</p>
-</div>
-
-<div class="slide">
-<h1>Persistent Storage: URLStore</h1>
-<p>
-The <code>NewURLStore</code> function now takes a <code>filename</code>
-argument, <code>Open</code>s the file, and stores the <code>*os.File</code>
-value in the <code>file</code> field:
-<pre>
-func NewURLStore(<code>filename string</code>) *URLStore {
-        s := &URLStore{urls: make(map[string]string)}
-        <em>f, err := os.Open(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
-        if err != nil {
-                log.Exit("URLStore:", err)
-        }
-	s.file = f</em>
-        return s
-}
-</pre>
-</div>
-
-<div class="slide">
-<h1>Persistent Storage: URLStore</h1>
-<p>
 Let's create a new data type, <code>record</code>, which describes how
 single key/url pair will be stored on disk:
 </p>
@@ -621,6 +588,39 @@ to disk as a gob-encoded <code>record</code>:
 func (s *URLStore) save(key, url string) os.Error {
         e := gob.NewEncoder(s.file)
         return e.Encode(record{key, url})
+}
+</pre>
+<p>
+But what is <code>s.file</code>?
+</p>
+</div>
+
+<div class="slide">
+<h1>Persistent Storage: URLStore</h1>
+<p>
+<code>URLStore</code>'s new <code>file</code> field (of type <code>*os.File</code>)
+will be a handle to an open file that can be used for writing and reading.
+</p>
+<pre>
+type URLStore struct {
+        urls     map[string]string
+        mu       sync.RWMutex
+        <em>file     *os.File</em>
+}
+</pre>
+<p>
+The <code>NewURLStore</code> function now takes a <code>filename</code>
+argument, <code>Open</code>s the file, and stores the <code>*os.File</code>
+value in the <code>file</code> field:
+<pre>
+func NewURLStore(<em>filename string</em>) *URLStore {
+        s := &URLStore{urls: make(map[string]string)}
+        <em>f, err := os.Open(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+        if err != nil {
+                log.Fatal("URLStore:", err)
+        }
+	s.file = f</em>
+        return s
 }
 </pre>
 </div>
@@ -664,7 +664,7 @@ func NewURLStore(filename string) *URLStore {
         s := &URLStore{urls: make(map[string]string)}
         f, err := os.Open(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
         if err != nil {
-                log.Exit("URLStore:", err)
+                log.Fatal("URLStore:", err)
         }
         s.file = f
         <em>if err := s.load(); err != nil {
@@ -681,9 +681,8 @@ func NewURLStore(filename string) *URLStore {
 <pre>
 func (s *URLStore) Put(url string) string {
         for {
-                key := genKey(s.count)
-                s.count++
-                if ok := s.Set(key, url); ok {
+                key := genKey(s.Count())
+                if s.Set(key, url) {
                         <em>if err := s.save(key, url); err != nil {
                                 log.Println("URLStore:", err)
                         }</em>
@@ -722,7 +721,7 @@ Consider this pathological situation:
 <ul>
 <li>Many clients attempt to add URLs simultaneously.
 <li>Even though we may safely update the map concurrently,
-    the disk writes may happen simultaneously.<br>
+    the disk writes may happen simultaneously.
     Depending on the characteristics of your OS, this may cause corruption.
 <li>Even if the writes do not collide, each client must wait for their
     data to be written to disk before their <code>Put</code> will return.
@@ -763,12 +762,6 @@ A <i>channel</i> is a conduit, like a unix pipe, through which you can send
 typed values. They provide many interesting algorithmic possibilities.
 </p>
 <p>
-Channels underpin the Go philosophy to concurrent programming:
-</p>
-<p><i>
-Do not communicate by sharing memory; instead, share memory by communicating.
-</i></p>
-<p>
 Like maps, channels must be initialized with <code>make</code>:
 </p>
 <pre>
@@ -782,6 +775,9 @@ ch &lt;- 7   // send the int 7 to the channel
 
 i := &lt;-ch // receive an int from the channel
 </pre>
+<p>
+Data always moves in the direction of the arrow.
+</p>
 </div>
 
 <div class="slide">
@@ -824,27 +820,21 @@ Instead of making a function call to save each record to disk,
 <code>Put</code> can send a <code>record</code> to a buffered channel:
 </p>
 <pre>
+type URLStore struct {
+        urls  map[string]string
+        mu    sync.RWMutex
+        <em>save  chan record</em>
+}
+
 func (s *URLStore) Put(url string) string {
         for {
-                key := genKey(s.count)
-                s.count++
-                if ok := s.Set(key, url); ok {
+                key := genKey(s.Count())
+                if s.Set(key, url) {
                         <em>s.save <- record{key, url}</em>
                         return key
                 }
         }
         panic("shouldn't get here")
-}
-</pre>
-<p>
-This necessitates a new field on <code>URLStore</code> named <code>save</code>:
-</p>
-<pre>
-type URLStore struct {
-        urls  map[string]string
-        mu    sync.RWMutex
-        count int
-        <em>save  chan record</em>
 }
 </pre>
 </div>
@@ -862,11 +852,11 @@ It receives <code>record</code> values and writes them to a file.
 func (s *URLStore) saveLoop(filename string) {
         f, err := os.Open(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
         if err != nil {
-                log.Exit("URLStore:", err)
+                log.Fatal("URLStore:", err)
         }
         e := gob.NewEncoder(f)
         for {
-		r := <-save
+		r := <-s.save
 		if err := e.Encode(r); err != nil {
                         log.Println("URLStore:", err)
                 }
@@ -899,18 +889,6 @@ func NewURLStore(filename string) *URLStore {
 </pre>
 </div>
 
-
-<div class="slide">
-<h1>Demonstration</h1>
-<p>See the code we've written so far:</p>
-<ul>
-<li><a href="https://github.com/nf/goto/tree/master/talk/code/2/">https://github.com/nf/goto/tree/master/talk/code/2/</a></li>
-</ul>
-<p class="eg">
-These slides are available at <a href="http://wh3rd.net/practical-go/">http://wh3rd.net/practical-go/</a>
-</p>
-</div>
-
 <div class="slide">
 <h1>An aside: Command-line flags</h1>
 <p>
@@ -929,9 +907,9 @@ We first create some global variables to hold the flag values:
 </p>
 <pre>
 var (
-	listenAddr = flag.String("http", ":9980", "http listen address")
+	listenAddr = flag.String("http", ":8080", "http listen address")
 	dataFile   = flag.String("file", "store.gob", "data store file name")
-	hostname   = flag.String("host", "localhost", "http host name")
+	hostname   = flag.String("host", "localhost:8080", "host name and port")
 )
 </pre>
 </div>
@@ -948,7 +926,7 @@ var store<em> *URLStore</em>
 
 func main() {
 <em>	flag.Parse()
-	store = URLStore(*dataFile)</em>
+	store = NewURLStore(*dataFile)</em>
         http.HandleFunc("/", Redirect)
         http.HandleFunc("/add", Add)
         http.ListenAndServe(<em>*listenAddr</em>, nil)
@@ -962,6 +940,16 @@ And substitute <code>*hostname</code> in the <code>Add</code> handler:
 </pre>
 </div>
 
+<div class="slide">
+<h1>Demonstration</h1>
+<p>See the code we've written so far:</p>
+<ul>
+<li><a href="https://github.com/nf/goto/tree/master/talk/code/2/">https://github.com/nf/goto/tree/master/talk/code/2/</a></li>
+</ul>
+<p class="eg">
+These slides are available at <a href="http://wh3rd.net/practical-go/">http://wh3rd.net/practical-go/</a>
+</p>
+</div>
 
 <div class="slide">
 <h1>One more thing...</h1>
@@ -1041,8 +1029,7 @@ func main() {
 <h1>ProxyStore</h1>
 <p>
 Now that we have the URLStore available as an RPC service, we can build
-another type that has the <code>Get</code> and <code>Put</code> methods of
-the <code>URLStore</code>, but instead forwards requests to the RPC server.
+another type that forwards requests to the RPC server.
 </p>
 <p>
 We will call it <code>ProxyStore</code>:
@@ -1188,8 +1175,10 @@ var masterAddr = flag.String("master", "", "RPC master address")
 func main() {
         flag.Parse() 
         if *masterAddr != "" {
+		<span>// we are a slave</span>
                 store = NewProxyStore(*masterAddr)
         } else {
+		<span>// we are the master</span>
                 store = NewURLStore(*dataFile)
         }
 <span>	...</span>
@@ -1222,9 +1211,9 @@ While this program does what we set out to do, there are a few ways it could
 be improved:
 </p>
 <ul>
-<li>Aesthetics: the user interface could be (much) prettier. 
-    See the <a href="http://golang.org/doc/codelab/wiki/">Wiki Codelab</a>
-    for details on using Go's <code>template</code> package.
+<li>Aesthetics: the user interface could be (much) prettier. <br>
+    <span class="eg">See the <a href="http://golang.org/doc/codelab/wiki/">Wiki Codelab</a>
+    at golang.org for details on using Go's <code>template</code> package.</span>
 <li>Reliability: the master/slave RPC connections could be more reliable.
     If the client-server connection goes down,
     the client should attempt to re-dial.
@@ -1234,7 +1223,6 @@ be improved:
     servers by key.
 <li>Deletion: to support deletion of shortened URLs, the interactions 
     bewteen master and slave would need to be made more complex.
-<li>Storage: a buffer could be used to batch write operations.
 </ul>
 </div>
 

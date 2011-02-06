@@ -10,7 +10,6 @@ import (
 type URLStore struct {
 	urls     map[string]string
 	mu       sync.RWMutex
-	count    int
 	file     *os.File
 }
 
@@ -22,7 +21,7 @@ func NewURLStore(filename string) *URLStore {
 	s := &URLStore{urls: make(map[string]string)}
 	f, err := os.Open(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
-		log.Exit("URLStore:", err)
+		log.Fatal("URLStore:", err)
 	}
 	s.file = f
 	if err := s.load(); err != nil {
@@ -47,10 +46,15 @@ func (s *URLStore) Set(key, url string) bool {
 	return true
 }
 
+func (s *URLStore) Count() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.urls)
+}
+
 func (s *URLStore) Put(url string) string {
 	for {
-		key := genKey(s.count)
-		s.count++
+		key := genKey(s.Count())
 		if ok := s.Set(key, url); ok {
 			if err := s.save(key, url); err != nil {
 				log.Println("URLStore:", err)

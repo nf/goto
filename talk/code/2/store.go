@@ -12,7 +12,6 @@ const saveQueueLength = 1000
 type URLStore struct {
 	urls  map[string]string
 	mu    sync.RWMutex
-	count int
 	save  chan record
 }
 
@@ -48,10 +47,15 @@ func (s *URLStore) Set(key, url string) bool {
 	return true
 }
 
+func (s *URLStore) Count() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.urls)
+}
+
 func (s *URLStore) Put(url string) string {
 	for {
-		key := genKey(s.count)
-		s.count++
+		key := genKey(s.Count())
 		if ok := s.Set(key, url); ok {
 			s.save <- record{key, url}
 			return key
@@ -82,7 +86,7 @@ func (s *URLStore) load(filename string) os.Error {
 func (s *URLStore) saveLoop(filename string) {
 	f, err := os.Open(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
-		log.Exit("URLStore:", err)
+		log.Fatal("URLStore:", err)
 	}
 	e := gob.NewEncoder(f)
 	for {
