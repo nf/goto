@@ -76,12 +76,16 @@ func get() {
 		return
 	}
 	defer r.Body.Close()
-	if _, err := ioutil.ReadAll(r.Body); err != nil {
+	b, err := ioutil.ReadAll(r.Body)
+	if err != nil {
 		log.Println("get:", err)
 		return
 	}
 	if r.StatusCode != 302 {
 		log.Println("get: wrong StatusCode:", r.StatusCode)
+		if r.StatusCode == 500 {
+			log.Printf("Error: %s\n", b)
+		}
 	}
 	if l := r.Header["Location"]; l != fooUrl {
 		log.Println("get: wrong Location:", l)
