@@ -16,9 +16,9 @@ type Store interface {
 }
 
 type URLStore struct {
-	urls  map[string]string
-	mu    sync.RWMutex
-	save  chan record
+	urls map[string]string
+	mu   sync.RWMutex
+	save chan record
 }
 
 type record struct {
@@ -77,7 +77,7 @@ func (s *URLStore) Put(url, key *string) os.Error {
 }
 
 func (s *URLStore) load(filename string) os.Error {
-	f, err := os.Open(filename, os.O_RDONLY, 0)
+	f, err := os.Open(filename)
 	if err != nil {
 		return err
 	}
@@ -96,7 +96,7 @@ func (s *URLStore) load(filename string) os.Error {
 }
 
 func (s *URLStore) saveLoop(filename string) {
-	f, err := os.Open(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	f, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		log.Fatal("URLStore:", err)
 	}

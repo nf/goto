@@ -611,12 +611,12 @@ type URLStore struct {
 </pre>
 <p>
 The <code>NewURLStore</code> function now takes a <code>filename</code>
-argument, <code>Open</code>s the file, and stores the <code>*os.File</code>
+argument, <code>OpenFile</code>s the file, and stores the <code>*os.File</code>
 value in the <code>file</code> field:
 <pre>
 func NewURLStore(<em>filename string</em>) *URLStore {
         s := &URLStore{urls: make(map[string]string)}
-        <em>f, err := os.Open(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+        <em>f, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
         if err != nil {
                 log.Fatal("URLStore:", err)
         }
@@ -663,7 +663,7 @@ constructor function:
 <pre>
 func NewURLStore(filename string) *URLStore {
         s := &URLStore{urls: make(map[string]string)}
-        f, err := os.Open(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+        f, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
         if err != nil {
                 log.Fatal("URLStore:", err)
         }
@@ -851,7 +851,7 @@ It receives <code>record</code> values and writes them to a file.
 </p>
 <pre>
 func (s *URLStore) saveLoop(filename string) {
-        f, err := os.Open(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+        f, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
         if err != nil {
                 log.Fatal("URLStore:", err)
         }

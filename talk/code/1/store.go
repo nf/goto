@@ -8,9 +8,9 @@ import (
 )
 
 type URLStore struct {
-	urls     map[string]string
-	mu       sync.RWMutex
-	file     *os.File
+	urls map[string]string
+	mu   sync.RWMutex
+	file *os.File
 }
 
 type record struct {
@@ -19,7 +19,7 @@ type record struct {
 
 func NewURLStore(filename string) *URLStore {
 	s := &URLStore{urls: make(map[string]string)}
-	f, err := os.Open(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+	f, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		log.Fatal("URLStore:", err)
 	}
