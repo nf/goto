@@ -101,7 +101,7 @@ func get() {
 			log.Printf("Error: %s\n", b)
 		}
 	}
-	if l := r.Header["Location"]; l != fooUrl {
+	if l := r.Header.Get("Location"); l != fooUrl {
 		log.Println("get: wrong Location:", l)
 	}
 	stat.In <- "get"
