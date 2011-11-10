@@ -24,7 +24,7 @@ import (
 
 var (
 	listenAddr = flag.String("http", ":8080", "http listen address")
-	dataFile   = flag.String("file", "store.gob", "data store file name")
+	dataFile   = flag.String("file", "store.json", "data store file name")
 	hostname   = flag.String("host", "localhost:8080", "http host name")
 	masterAddr = flag.String("master", "", "RPC master address")
 	rpcEnabled = flag.Bool("rpc", false, "enable RPC server")
@@ -83,8 +83,10 @@ func Add(w http.ResponseWriter, r *http.Request) {
 }
 
 const AddForm = `
+<html><body>
 <form method="POST" action="/add">
 URL: <input type="text" name="url">
 <input type="submit" value="Add">
 </form>
+</body></html>
 `

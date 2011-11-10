@@ -48,7 +48,7 @@
     - os.Error interface
     - Reader and Writer interfaces
   - implement WriteTo on URLMap
-    - ASIDE: gob
+    - ASIDE: json
     - create encoder
     - take a read lock
     - encode to writer

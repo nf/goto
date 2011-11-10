@@ -1,7 +1,7 @@
 package main
 
 import (
-	"gob"
+	"json"
 	"log"
 	"os"
 	"sync"
@@ -69,7 +69,7 @@ func (s *URLStore) load() os.Error {
 	if _, err := s.file.Seek(0, 0); err != nil {
 		return err
 	}
-	d := gob.NewDecoder(s.file)
+	d := json.NewDecoder(s.file)
 	var err os.Error
 	for err == nil {
 		var r record
@@ -84,6 +84,6 @@ func (s *URLStore) load() os.Error {
 }
 
 func (s *URLStore) save(key, url string) os.Error {
-	e := gob.NewEncoder(s.file)
+	e := json.NewEncoder(s.file)
 	return e.Encode(record{key, url})
 }

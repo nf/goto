@@ -17,7 +17,7 @@ package main
 import (
 	"bufio"
 	"github.com/nf/stat"
-	"gob"
+	"json"
 	"log"
 	"os"
 	"rpc"
@@ -103,7 +103,7 @@ func (s *URLStore) load(filename string) os.Error {
 	}
 	defer f.Close()
 	b := bufio.NewReader(f)
-	d := gob.NewDecoder(b)
+	d := json.NewDecoder(b)
 	for {
 		var r record
 		if err := d.Decode(&r); err == os.EOF {
@@ -125,7 +125,7 @@ func (s *URLStore) saveLoop(filename string) {
 		return
 	}
 	b := bufio.NewWriter(f)
-	e := gob.NewEncoder(b)
+	e := json.NewEncoder(b)
 	t := time.NewTicker(saveTimeout)
 	defer f.Close()
 	defer b.Flush()

@@ -549,17 +549,16 @@ method, <code>w</code> can be passed to <code>Fprint</code> as an
 </div>
 
 <div class="slide">
-<h1>Persistent Storage: gob</h1>
+<h1>Persistent Storage: json</h1>
 <p>
 How should we represent the <code>URLStore</code> on disk?
 </p>
 <p>
-Go's <code>gob</code> package handles serializing and deserializing Go
-data structures.<br>
-(Similar to Python's "pickle" or Java's "Serialization".)
+Go's <code>json</code> package handles serializing and deserializing Go
+data structures to and from JSON blobs.
 </p>
 <p>
-The <code>gob</code> package's <code>NewEncoder</code> and
+The <code>json</code> package's <code>NewEncoder</code> and
 <code>NewDecoder</code> functions wrap <code>io.Writer</code> and
 <code>io.Reader</code> values respectively.
 </p>
@@ -583,11 +582,11 @@ type record struct {
 </pre>
 <p>
 The new <code>save</code> method writes a given key and url
-to disk as a gob-encoded <code>record</code>:
+to disk as a JSON-encoded <code>record</code>:
 </p>
 <pre>
 func (s *URLStore) save(key, url string) os.Error {
-        e := gob.NewEncoder(s.file)
+        e := json.NewEncoder(s.file)
         return e.Encode(record{key, url})
 }
 </pre>
@@ -638,7 +637,7 @@ func (s *URLStore) load() os.Error {
         if _, err := s.file.Seek(0, 0); err != nil {
                 return err
         }
-        d := gob.NewDecoder(s.file)
+        d := json.NewDecoder(s.file)
         var err os.Error
         for err == nil {
                 var r record
@@ -701,7 +700,7 @@ func (s *URLStore) Put(url string) string {
 Finally, we must specify a filename when instantiating the URLStore:
 </p>
 <pre>
-var store = NewURLStore(<em>"store.gob"</em>)
+var store = NewURLStore(<em>"store.json"</em>)
 </pre>
 
 <h1>Demonstration</h1>
@@ -855,7 +854,7 @@ func (s *URLStore) saveLoop(filename string) {
         if err != nil {
                 log.Fatal("URLStore:", err)
         }
-        e := gob.NewEncoder(f)
+        e := json.NewEncoder(f)
         for {
 		r := <-s.save
 		if err := e.Encode(r); err != nil {
@@ -909,7 +908,7 @@ We first create some global variables to hold the flag values:
 <pre>
 var (
 	listenAddr = flag.String("http", ":8080", "http listen address")
-	dataFile   = flag.String("file", "store.gob", "data store file name")
+	dataFile   = flag.String("file", "store.json", "data store file name")
 	hostname   = flag.String("host", "localhost:8080", "host name and port")
 )
 </pre>
