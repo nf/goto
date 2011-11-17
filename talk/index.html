@@ -159,7 +159,7 @@ and <code>Get</code> methods.
 </p>
 <p>
 The <code>Get</code> method takes the read lock with <code>mu.RLock</code>, and
-returns the URL as a string. If the key is present in the map, the
+returns the URL as a string. If the key is not present in the map, the
 zero value for the string type (an empty string) will be returned.
 </p>
 <pre>
