@@ -1,6 +1,6 @@
 #!/bin/sh
 
-gomake
+go build -o goto
 ./goto -http=:8081 -rpc=true &
 master_pid=$!
 sleep 1

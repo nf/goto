@@ -3,8 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
-	"http"
-	"rpc"
+	"net/http"
+	"net/rpc"
 )
 
 var (
@@ -42,7 +42,7 @@ func Redirect(w http.ResponseWriter, r *http.Request) {
 	}
 	var url string
 	if err := store.Get(&key, &url); err != nil {
-		http.Error(w, err.String(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	http.Redirect(w, r, url, http.StatusFound)
@@ -56,7 +56,7 @@ func Add(w http.ResponseWriter, r *http.Request) {
 	}
 	var key string
 	if err := store.Put(&url, &key); err != nil {
-		http.Error(w, err.String(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	fmt.Fprintf(w, "http://%s/%s", *hostname, key)

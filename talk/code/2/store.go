@@ -1,7 +1,8 @@
 package main
 
 import (
-	"json"
+	"encoding/json"
+	"io"
 	"log"
 	"os"
 	"sync"
@@ -64,7 +65,7 @@ func (s *URLStore) Put(url string) string {
 	panic("shouldn't get here")
 }
 
-func (s *URLStore) load(filename string) os.Error {
+func (s *URLStore) load(filename string) error {
 	f, err := os.Open(filename)
 	if err != nil {
 		return err
@@ -77,7 +78,7 @@ func (s *URLStore) load(filename string) os.Error {
 			s.Set(r.Key, r.URL)
 		}
 	}
-	if err == os.EOF {
+	if err == io.EOF {
 		return nil
 	}
 	return err

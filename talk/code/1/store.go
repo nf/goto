@@ -1,7 +1,8 @@
 package main
 
 import (
-	"json"
+	"encoding/json"
+	"io"
 	"log"
 	"os"
 	"sync"
@@ -65,25 +66,25 @@ func (s *URLStore) Put(url string) string {
 	panic("shouldn't get here")
 }
 
-func (s *URLStore) load() os.Error {
+func (s *URLStore) load() error {
 	if _, err := s.file.Seek(0, 0); err != nil {
 		return err
 	}
 	d := json.NewDecoder(s.file)
-	var err os.Error
+	var err error
 	for err == nil {
 		var r record
 		if err = d.Decode(&r); err == nil {
 			s.Set(r.Key, r.URL)
 		}
 	}
-	if err == os.EOF {
+	if err == io.EOF {
 		return nil
 	}
 	return err
 }
 
-func (s *URLStore) save(key, url string) os.Error {
+func (s *URLStore) save(key, url string) error {
 	e := json.NewEncoder(s.file)
 	return e.Encode(record{key, url})
 }

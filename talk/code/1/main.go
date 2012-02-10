@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"http"
+	"net/http"
 )
 
 var store = NewURLStore("store.json")
@@ -22,7 +22,6 @@ func Redirect(w http.ResponseWriter, r *http.Request) {
 	}
 	http.Redirect(w, r, url, http.StatusFound)
 }
-
 
 func Add(w http.ResponseWriter, r *http.Request) {
 	url := r.FormValue("url")

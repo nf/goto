@@ -16,11 +16,13 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
+	"errors"
 	"github.com/nf/stat"
-	"json"
+	"io"
 	"log"
+	"net/rpc"
 	"os"
-	"rpc"
 	"sync"
 	"time"
 )
@@ -31,10 +33,9 @@ const (
 )
 
 type Store interface {
-	Put(url, key *string) os.Error
-	Get(key, url *string) os.Error
+	Put(url, key *string) error
+	Get(key, url *string) error
 }
-
 
 type URLStore struct {
 	mu    sync.RWMutex
@@ -59,7 +60,7 @@ func NewURLStore(filename string) *URLStore {
 	return s
 }
 
-func (s *URLStore) Get(key, url *string) os.Error {
+func (s *URLStore) Get(key, url *string) error {
 	defer statSend("store get")
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -67,20 +68,20 @@ func (s *URLStore) Get(key, url *string) os.Error {
 		*url = u
 		return nil
 	}
-	return os.NewError("key not found")
+	return errors.New("key not found")
 }
 
-func (s *URLStore) Set(key, url *string) os.Error {
+func (s *URLStore) Set(key, url *string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, present := s.urls[*key]; present {
-		return os.NewError("key already exists")
+		return errors.New("key already exists")
 	}
 	s.urls[*key] = *url
 	return nil
 }
 
-func (s *URLStore) Put(url, key *string) os.Error {
+func (s *URLStore) Put(url, key *string) error {
 	defer statSend("store put")
 	for {
 		*key = genKey(s.count)
@@ -95,8 +96,7 @@ func (s *URLStore) Put(url, key *string) os.Error {
 	return nil
 }
 
-
-func (s *URLStore) load(filename string) os.Error {
+func (s *URLStore) load(filename string) error {
 	f, err := os.Open(filename)
 	if err != nil {
 		return err
@@ -106,7 +106,7 @@ func (s *URLStore) load(filename string) os.Error {
 	d := json.NewDecoder(b)
 	for {
 		var r record
-		if err := d.Decode(&r); err == os.EOF {
+		if err := d.Decode(&r); err == io.EOF {
 			break
 		} else if err != nil {
 			return err
@@ -130,7 +130,7 @@ func (s *URLStore) saveLoop(filename string) {
 	defer f.Close()
 	defer b.Flush()
 	for {
-		var err os.Error
+		var err error
 		select {
 		case r := <-s.save:
 			err = e.Encode(r)
@@ -142,7 +142,6 @@ func (s *URLStore) saveLoop(filename string) {
 		}
 	}
 }
-
 
 type ProxyStore struct {
 	urls   *URLStore
@@ -157,7 +156,7 @@ func NewProxyStore(addr string) *ProxyStore {
 	return &ProxyStore{urls: NewURLStore(""), client: client}
 }
 
-func (s *ProxyStore) Get(key, url *string) os.Error {
+func (s *ProxyStore) Get(key, url *string) error {
 	if err := s.urls.Get(key, url); err == nil {
 		return nil
 	}
@@ -168,14 +167,13 @@ func (s *ProxyStore) Get(key, url *string) os.Error {
 	return nil
 }
 
-func (s *ProxyStore) Put(url, key *string) os.Error {
+func (s *ProxyStore) Put(url, key *string) error {
 	if err := s.client.Call("Store.Put", url, key); err != nil {
 		return err
 	}
 	s.urls.Set(key, url)
 	return nil
 }
-
 
 func statSend(s string) {
 	if *statServer != "" {

@@ -347,7 +347,7 @@ package main
 
 import (
 	"fmt"
-	"http"
+	"net/http"
 )
 
 func Hello(w http.ResponseWriter, r *http.Request) {
@@ -511,7 +511,7 @@ One frequently-used interface is <code>Writer</code>, specified by the
 </p>
 <pre>
 type Writer interface {
-	Write(p []byte) (n int, err os.Error)
+	Write(p []byte) (n int, err error)
 }
 </pre>
 <p>
@@ -538,7 +538,7 @@ The <code>Fprintf</code> function expects an <code>io.Writer</code> as its
 first argument:
 </p>
 <pre>
-func Fprintf(w io.Writer, format string, a ...interface{}) (n int, error os.Error)
+func Fprintf(w io.Writer, format string, a ...interface{}) (n int, error error)
 </pre>
 <p>
 Because <code>http.ResponseWriter</code> implements the <code>Write</code>
@@ -585,7 +585,7 @@ The new <code>save</code> method writes a given key and url
 to disk as a JSON-encoded <code>record</code>:
 </p>
 <pre>
-func (s *URLStore) save(key, url string) os.Error {
+func (s *URLStore) save(key, url string) error {
         e := json.NewEncoder(s.file)
         return e.Encode(record{key, url})
 }
@@ -610,7 +610,7 @@ type URLStore struct {
 </pre>
 <p>
 The <code>NewURLStore</code> function now takes a <code>filename</code>
-argument, <code>OpenFile</code>s the file, and stores the <code>*os.File</code>
+argument, opens the file, and stores the <code>*os.File</code>
 value in the <code>file</code> field:
 <pre>
 func NewURLStore(<em>filename string</em>) *URLStore {
@@ -630,15 +630,15 @@ func NewURLStore(<em>filename string</em>) *URLStore {
 <p>
 The new <code>load</code> method will <code>Seek</code> to the beginning of
 the file, read and <code>Decode</code> each <code>record</code>,
-and store write the data to the map using the <code>Set</code> method:
+and store the data using the <code>Set</code> method:
 </p>
 <pre>
-func (s *URLStore) load() os.Error {
+func (s *URLStore) load() error {
         if _, err := s.file.Seek(0, 0); err != nil {
                 return err
         }
         d := json.NewDecoder(s.file)
-        var err os.Error
+        var err error
         for err == nil {
                 var r record
                 if err = d.Decode(&r); err == nil {
@@ -897,9 +897,10 @@ Let's use it to replace the constants we have in our code so far.
 </p>
 <pre>
 import (
+	"encoding/json"
 <em>	"flag"</em>
 	"fmt"
-	"http"
+	"net/http"
 )
 </pre>
 <p>
@@ -979,7 +980,7 @@ Given a value, <code>rpc</code> will expose to the network the value's methods
 that meet this function signature:
 </p>
 <pre>
-func (t T) Name(args *ArgType, reply *ReplyType) os.Error
+func (t T) Name(args *ArgType, reply *ReplyType) error
 </pre>
 <p>
 To make <code>URLStore</code> an RPC service we need to alter the
@@ -987,18 +988,88 @@ To make <code>URLStore</code> an RPC service we need to alter the
 function signature:
 </p>
 <pre>
-func (s *URLStore) Get(key, url *string) os.Error
+func (s *URLStore) Get(key, url *string) error
 
-func (s *URLStore) Put(url, key *string) os.Error
+func (s *URLStore) Put(url, key *string) error
 </pre>
 <p>
 And, of course, we need to change the call sites to call these functions
 appropriately.
 </p>
-<p class="eg">
-These changes are described in full by some slides at the end of this 
-presentation. They have been omitted here for time reasons.
+</div>
+
+<div class="slide">
+<h1>Making URLStore an RPC service</h1>
+<p>
+To make <code>URLStore</code> an RPC services, we need to alter the 
+<code>Get</code> and <code>Put</code> methods to be <code>rpc</code>-friendly.
+The function signatures change, and now return an <code>error</code> value.
 </p>
+<p>
+The <code>Get</code> method can return an explicit error when the provided key 
+is not found:
+</p>
+<pre>
+func (s *URLStore) Get(key, url *string) error {
+        s.mu.RLock()
+        defer s.mu.RUnlock()
+        if u, ok := s.urls[*key]; ok {
+                *url = u
+                return nil
+        }
+        return os.NewError("key not found")
+}
+</pre>
+<p>
+Beyond the function signature, the <code>Put</code> method barely changes
+in its actual code (not shown here):
+</p>
+<pre>
+func (s *URLStore) Put(url, key *string) <em>error</em>
+</pre>
+</div>
+
+<div class="slide">
+<h1>Making URLStore an RPC service</h1>
+<p>
+In turn, the HTTP handlers must be modfied to accommodate the changes to
+<code>URLStore</code>.
+</p>
+<p>
+The <code>Redirect</code> handler now displays the error returned by
+the <code>URLStore</code>:
+</p>
+<pre>
+func Redirect(w http.ResponseWriter, r *http.Request) {
+	key := r.URL.Path[1:]
+<em>	var url string</em>
+	if <em>err</em> := store.Get(<em>&</em>key, <em>&</em>url); err != nil {
+<em>	        http.Error(w, err.Error(), http.StatusInternalServerError)</em>
+	        return
+	}
+	http.Redirect(w, r, url, http.StatusFound)
+}
+</pre>
+</div>
+
+<div class="slide">
+<h1>Making URLStore an RPC service</h1>
+<p>The <code>Add</code> handler changes in much the same way:</p>
+<pre>
+func Add(w http.ResponseWriter, r *http.Request) {
+	url := r.FormValue("url")
+	if url == "" {
+	        fmt.Fprint(w, AddForm)
+	        return
+	}
+<em>	var key string</em>
+	if <em>err</em> := store.Put(<em>&</em>url, <em>&</em>key); err != nil {
+<em>	        http.Error(w, err.Error(), http.StatusInternalServerError)</em>
+	        return
+	}
+	fmt.Fprintf(w, "http://%s/%s", *hostname, key)
+}
+</pre>
 </div>
 
 <div class="slide">
@@ -1056,11 +1127,11 @@ Its <code>Get</code> and <code>Put</code> methods pass the requests directly
 to the RPC server:
 </p>
 <pre>
-func (s *ProxyStore) Get(key, url *string) os.Error {
+func (s *ProxyStore) Get(key, url *string) error {
         return s.client.Call("Store.Get", key, url)
 }
 
-func (s *ProxyStore) Put(url, key *string) os.Error {
+func (s *ProxyStore) Put(url, key *string) error {
         return s.client.Call("Store.Put", url, key)
 }
 </pre>
@@ -1077,7 +1148,7 @@ We already have the perfect data structure for caching this data,
 the <code>URLStore</code>.
 </p>
 <p>
-Let's add a <code>URLStore</code> instance to <code>ProxyStore</code>:
+Let's add a <code>URLStore</code> field to <code>ProxyStore</code>:
 </p>
 <pre>
 type ProxyStore struct {
@@ -1095,7 +1166,7 @@ func NewProxyStore(addr string) *ProxyStore {
 </pre>
 <p>
 (And we must modify the <code>URLStore</code> so that it doesn't try to write
-to or read from disk if an empty filename is given.)
+to or read from disk if an empty filename is given &mdash; no big deal.)
 </p>
 </div>
 
@@ -1107,7 +1178,7 @@ If present, <code>Get</code> should return the cached result. If not,
 it should make the RPC call, and update its local cache with the result.
 </p>
 <pre>
-func (s *ProxyStore) Get(key, url *string) os.Error {
+func (s *ProxyStore) Get(key, url *string) error {
         <em>if err := s.urls.Get(key, url); err == nil {
                 return nil
         }</em>
@@ -1127,7 +1198,7 @@ The <code>Put</code> method need only update the cache when it performs a
 successful RPC <code>Put</code>.
 </p>
 <pre>
-func (s *ProxyStore) Put(url, key *string) os.Error {
+func (s *ProxyStore) Put(url, key *string) error {
         if err := s.client.Call("Store.Put", url, key); err != nil {
                 return err
         }
@@ -1150,8 +1221,8 @@ methods, we can specify an interface to generalize their behavior:
 </p>
 <pre>
 type Store interface {
-        Put(url, key *string) os.Error
-        Get(key, url *string) os.Error
+        Put(url, key *string) error
+        Get(key, url *string) error
 }
 </pre>
 <p>
@@ -1186,7 +1257,7 @@ func main() {
 </pre>
 <p>
 The rest of the front-end code continues to work as before.
-It does not need to be aware of the <code>Store</code> interface.
+No need to tell it about the <code>Store</code> interface &mdash; it just works!
 </p>
 </div>
 
@@ -1229,6 +1300,7 @@ be improved:
 <div class="slide">
 <h1>Go Resources</h1>
 <ul>
+<li><b>http://tour.golang.org/</b> - an interactive tour of Go.
 <li><b>http://golang.org/</b> - the official Go homepage.
 	<ul>
 	<li>Lots of documentation (read the language spec!),
@@ -1251,83 +1323,6 @@ be improved:
 <p><img src="bumper640x360.png"></p>
 </div>
 
-<div class="slide">
-<h1>Additional RPC slides follow</h1>
-</div>
-
-<div class="slide">
-<h1>Making URLStore an RPC service</h1>
-<p>
-To make <code>URLStore</code> an RPC services, we need to alter the 
-<code>Get</code> and <code>Put</code> methods to be <code>rpc</code>-friendly.
-The function signatures change, and now return an <code>os.Error</code> value.
-</p>
-<p>
-The <code>Get</code> method can return an explicit error when the provided key 
-is not found:
-</p>
-<pre>
-func (s *URLStore) Get(key, url *string) os.Error {
-        s.mu.RLock()
-        defer s.mu.RUnlock()
-        if u, ok := s.urls[*key]; ok {
-                *url = u
-                return nil
-        }
-        return os.NewError("key not found")
-}
-</pre>
-<p>
-Beyond the function signature, the <code>Put</code> method barely changes
-in its actual code (not shown here):
-</p>
-<pre>
-func (s *URLStore) Put(url, key *string) <em>os.Error</em>
-</pre>
-</div>
-
-<div class="slide">
-<h1>Making URLStore an RPC service</h1>
-<p>
-In turn, the HTTP handlers must be modfied to accommodate the changes to
-<code>URLStore</code>.
-</p>
-<p>
-The <code>Redirect</code> handler now returns the error string provided by
-the <code>URLStore</code>:
-</p>
-<pre>
-func Redirect(w http.ResponseWriter, r *http.Request) {
-	key := r.URL.Path[1:]
-<em>	var url string</em>
-	if <em>err</em> := store.Get(<em>&</em>key, <em>&</em>url); err != nil {
-<em>	        http.Error(w, err.String(), http.StatusInternalServerError)</em>
-	        return
-	}
-	http.Redirect(w, r, url, http.StatusFound)
-}
-</pre>
-</div>
-
-<div class="slide">
-<h1>Making URLStore an RPC service</h1>
-<p>The <code>Add</code> handler changes in much the same way:</p>
-<pre>
-func Add(w http.ResponseWriter, r *http.Request) {
-	url := r.FormValue("url")
-	if url == "" {
-	        fmt.Fprint(w, AddForm)
-	        return
-	}
-<em>	var key string</em>
-	if <em>err</em> := store.Put(<em>&</em>url, <em>&</em>key); err != nil {
-<em>	        http.Error(w, err.String(), http.StatusInternalServerError)</em>
-	        return
-	}
-	fmt.Fprintf(w, "http://%s/%s", *hostname, key)
-}
-</pre>
-</div>
 
 </body>
 </html>
