@@ -18,10 +18,11 @@ import (
 	"flag"
 	"fmt"
 	"github.com/nf/stat"
-	"http"
 	"io/ioutil"
 	"log"
-	"rand"
+	"math/rand"
+	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -66,8 +67,8 @@ func keeper() {
 }
 
 func post() {
-	url := fmt.Sprintf("http://%s/add", hosts[rand.Intn(len(hosts))])
-	r, err := http.PostForm(url, map[string]string{"url": fooUrl})
+	u := fmt.Sprintf("http://%s/add", hosts[rand.Intn(len(hosts))])
+	r, err := http.PostForm(u, url.Values{"url": {fooUrl}})
 	if err != nil {
 		log.Println("post:", err)
 		return
@@ -83,8 +84,8 @@ func post() {
 }
 
 func get() {
-	url := <-randURL
-	r, err := http.Head(url)
+	u := <-randURL
+	r, err := http.Head(u)
 	if err != nil {
 		log.Println("get:", err)
 		return
@@ -116,8 +117,8 @@ func loop(fn func(), delay int64) {
 
 func main() {
 	flag.Parse()
-	hosts = strings.Split(*host, ",", -1)
-	rand.Seed(time.Nanoseconds())
+	hosts = strings.Split(*host, ",")
+	rand.Seed(time.Now().UnixNano())
 	go keeper()
 	for i := 0; i < getters*(*n); i++ {
 		go loop(get, getDelay)

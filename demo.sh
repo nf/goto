@@ -8,10 +8,12 @@ N3=16
 
 echo "Starting up"
 cd ../stat/server
+go build -o stats
 ./stats &
 stats_pid=$!
 cd ../../goto
 sleep 1
+go build -o goto
 ./goto -stats=$STATS -host=$MASTER -rpc=true &
 master_pid=$!
 sleep 1
@@ -24,6 +26,7 @@ slave3_pid=$!
 sleep 1
 
 echo "Testing the master (n=$N1)"
+go build -o bench/bench ./bench
 bench/bench -stats=$STATS -host=$MASTER -n=$N1 &
 pid=$!
 read
