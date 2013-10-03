@@ -85,7 +85,8 @@ func post() {
 
 func get() {
 	u := <-randURL
-	r, err := http.Head(u)
+	req, err := http.NewRequest("HEAD",u,nil)
+	r, err := http.DefaultTransport.RoundTrip(req)
 	if err != nil {
 		log.Println("get:", err)
 		return
