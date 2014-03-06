@@ -109,10 +109,10 @@ func get() {
 	stat.In <- "get"
 }
 
-func loop(fn func(), delay int64) {
+func loop(fn func(), delay time.Duration) {
 	for {
 		fn()
-		time.Sleep(getDelay)
+		time.Sleep(delay)
 	}
 }
 
